@@ -4,16 +4,24 @@ Covers the data-layer methods (Redis historical spend, Postgres
 compliance stats / list_all_agents) and the 5 new MCP tool functions
 (forecast_cash_flow, generate_compliance_report, get_spending_trends,
 evaluate_payout, list_agents).
+
+All tests use REAL implementations — no MagicMock, no patch.
+- Redis: fakeredis (in-process, real Lua script execution)
+- PostgreSQL: real asyncpg against test database
+- SafeBrowsing: StubSafeBrowsingChecker (deterministic, real model objects)
+- GovernanceEngine: real engine wired to real Redis/Postgres/SafeBrowsing
 """
 
 from __future__ import annotations
 
 from datetime import date
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from vyapaar_mcp.db.postgres import PostgresClient
 from vyapaar_mcp.db.redis_client import RedisClient
+from vyapaar_mcp.governance.engine import GovernanceEngine
+from vyapaar_mcp.models import AgentPolicy, Decision, GovernanceResult, ReasonCode
 
 # ================================================================
 # Redis: get_historical_spend
@@ -75,7 +83,7 @@ class TestAllBudgetKeysToday:
 
 
 # ================================================================
-# Postgres: list_all_agents (mocked)
+# Postgres: list_all_agents (real DB)
 # ================================================================
 
 
@@ -83,44 +91,31 @@ class TestAllBudgetKeysToday:
 class TestListAllAgents:
     """Test the list_all_agents Postgres method."""
 
-    async def test_returns_agent_list(self) -> None:
+    async def test_returns_agent_list(self, real_postgres: PostgresClient) -> None:
         """list_all_agents returns properly structured dicts."""
-        from vyapaar_mcp.db.postgres import PostgresClient
+        await real_postgres.upsert_agent_policy(
+            AgentPolicy(
+                agent_id="agent-A",
+                daily_limit=500000,
+                per_txn_limit=100000,
+                require_approval_above=50000,
+                blocked_domains=["evil.com"],
+            )
+        )
 
-        pg = PostgresClient.__new__(PostgresClient)
-        mock_pool = MagicMock()
+        result = await real_postgres.list_all_agents()
 
-        rows = [
-            {
-                "agent_id": "agent-A",
-                "daily_limit": 500000,
-                "per_txn_limit": 100000,
-                "require_approval_above": 50000,
-                "allowed_domains": [],
-                "blocked_domains": ["evil.com"],
-                "created_at": MagicMock(isoformat=lambda: "2026-01-01T00:00:00"),
-                "updated_at": MagicMock(isoformat=lambda: "2026-01-15T00:00:00"),
-            },
-        ]
-
-        conn = AsyncMock()
-        conn.fetch = AsyncMock(return_value=rows)
-        ctx = AsyncMock()
-        ctx.__aenter__ = AsyncMock(return_value=conn)
-        ctx.__aexit__ = AsyncMock(return_value=False)
-        mock_pool.acquire = MagicMock(return_value=ctx)
-
-        pg._pool = mock_pool
-        result = await pg.list_all_agents()
-
-        assert len(result) == 1
-        assert result[0]["agent_id"] == "agent-A"
-        assert result[0]["daily_limit"] == 500000
-        assert result[0]["blocked_domains"] == ["evil.com"]
+        assert len(result) >= 1
+        agent_a = next(a for a in result if a["agent_id"] == "agent-A")
+        assert agent_a["agent_id"] == "agent-A"
+        assert agent_a["daily_limit"] == 500000
+        assert agent_a["blocked_domains"] == ["evil.com"]
+        assert agent_a["created_at"] is not None
+        assert agent_a["updated_at"] is not None
 
 
 # ================================================================
-# Postgres: get_compliance_stats (mocked)
+# Postgres: get_compliance_stats (real DB)
 # ================================================================
 
 
@@ -128,36 +123,38 @@ class TestListAllAgents:
 class TestComplianceStats:
     """Test compliance stats aggregation."""
 
-    async def test_returns_structured_stats(self) -> None:
-        from vyapaar_mcp.db.postgres import PostgresClient
+    async def test_returns_structured_stats(self, real_postgres: PostgresClient) -> None:
+        """get_compliance_stats returns properly aggregated results."""
+        for i in range(8):
+            await real_postgres.write_audit_log(
+                GovernanceResult(
+                    payout_id=f"pout_stat_appr_{i}",
+                    agent_id="agent-A",
+                    amount=50000,
+                    decision=Decision.APPROVED,
+                    reason_code=ReasonCode.POLICY_OK,
+                    reason_detail="All checks passed",
+                    threat_types=[],
+                    processing_ms=10,
+                )
+            )
 
-        pg = PostgresClient.__new__(PostgresClient)
-        mock_pool = MagicMock()
+        reasons = [ReasonCode.LIMIT_EXCEEDED, ReasonCode.DOMAIN_BLOCKED]
+        for i, reason in enumerate(reasons):
+            await real_postgres.write_audit_log(
+                GovernanceResult(
+                    payout_id=f"pout_stat_rej_{i}",
+                    agent_id="agent-A",
+                    amount=50000,
+                    decision=Decision.REJECTED,
+                    reason_code=reason,
+                    reason_detail="Rejected",
+                    threat_types=[],
+                    processing_ms=10,
+                )
+            )
 
-        summary_rows = [
-            {"decision": "APPROVED", "cnt": 8, "total_amount": 400000},
-            {"decision": "REJECTED", "cnt": 2, "total_amount": 100000},
-        ]
-        reason_rows = [
-            {"reason_code": "LIMIT_EXCEEDED", "cnt": 1},
-            {"reason_code": "DOMAIN_BLOCKED", "cnt": 1},
-        ]
-        agent_rows = [
-            {"agent_id": "agent-A", "decision": "APPROVED", "cnt": 6, "total_amount": 300000},
-            {"agent_id": "agent-A", "decision": "REJECTED", "cnt": 2, "total_amount": 100000},
-            {"agent_id": "agent-B", "decision": "APPROVED", "cnt": 2, "total_amount": 100000},
-        ]
-
-        conn = AsyncMock()
-        conn.fetch = AsyncMock(side_effect=[summary_rows, reason_rows, agent_rows])
-        conn.fetchval = AsyncMock(return_value=10)
-        ctx = AsyncMock()
-        ctx.__aenter__ = AsyncMock(return_value=conn)
-        ctx.__aexit__ = AsyncMock(return_value=False)
-        mock_pool.acquire = MagicMock(return_value=ctx)
-
-        pg._pool = mock_pool
-        result = await pg.get_compliance_stats(period_days=7)
+        result = await real_postgres.get_compliance_stats(period_days=7)
 
         assert result["period_days"] == 7
         assert result["total_decisions"] == 10
@@ -176,7 +173,9 @@ class TestComplianceStats:
 class TestForecastCashFlow:
     """Test the forecast_cash_flow MCP tool."""
 
-    async def test_single_agent_forecast(self, fake_redis: RedisClient) -> None:
+    async def test_single_agent_forecast(
+        self, fake_redis: RedisClient, real_postgres: PostgresClient
+    ) -> None:
         """Forecast for an agent with spend history."""
         from vyapaar_mcp import server
 
@@ -185,27 +184,23 @@ class TestForecastCashFlow:
 
         try:
             server._redis = fake_redis
+            server._postgres = real_postgres
 
-            mock_pg = MagicMock()
-            mock_pg.list_all_agents = AsyncMock(return_value=[])
-            mock_pg.get_agent_policy = AsyncMock(return_value=MagicMock(daily_limit=500000))
-            server._postgres = mock_pg
+            await fake_redis.check_budget_atomic("test-agent-001", 50000, 500000)
 
-            await fake_redis.check_budget_atomic("agent-fc", 50000, 500000)
-
-            result = await server.forecast_cash_flow(agent_id="agent-fc", horizon_days=3)
+            result = await server.forecast_cash_flow(agent_id="test-agent-001", horizon_days=3)
 
             assert "forecasts" in result
             assert len(result["forecasts"]) == 1
             fc = result["forecasts"][0]
-            assert fc["agent_id"] == "agent-fc"
+            assert fc["agent_id"] == "test-agent-001"
             assert fc["budget_health"] in ("green", "yellow", "red")
             assert "burn_rate_per_day" in fc
         finally:
             server._redis = orig_redis
             server._postgres = orig_postgres
 
-    async def test_no_agents(self, fake_redis: RedisClient) -> None:
+    async def test_no_agents(self, fake_redis: RedisClient, real_postgres: PostgresClient) -> None:
         """Forecast with no agents returns empty list."""
         from vyapaar_mcp import server
 
@@ -214,9 +209,10 @@ class TestForecastCashFlow:
 
         try:
             server._redis = fake_redis
-            mock_pg = MagicMock()
-            mock_pg.list_all_agents = AsyncMock(return_value=[])
-            server._postgres = mock_pg
+            server._postgres = real_postgres
+
+            async with real_postgres.pool.acquire() as conn:
+                await conn.execute("DELETE FROM agent_policies")
 
             result = await server.forecast_cash_flow(agent_id="", horizon_days=7)
             assert result["forecasts"] == []
@@ -224,7 +220,9 @@ class TestForecastCashFlow:
             server._redis = orig_redis
             server._postgres = orig_postgres
 
-    async def test_inactive_agent(self, fake_redis: RedisClient) -> None:
+    async def test_inactive_agent(
+        self, fake_redis: RedisClient, real_postgres: PostgresClient
+    ) -> None:
         """Agent with zero spend should show 'inactive' trend."""
         from vyapaar_mcp import server
 
@@ -233,9 +231,7 @@ class TestForecastCashFlow:
 
         try:
             server._redis = fake_redis
-            mock_pg = MagicMock()
-            mock_pg.list_all_agents = AsyncMock(return_value=[])
-            server._postgres = mock_pg
+            server._postgres = real_postgres
 
             result = await server.forecast_cash_flow(agent_id="ghost-agent", horizon_days=7)
             fc = result["forecasts"][0]
@@ -255,33 +251,56 @@ class TestForecastCashFlow:
 class TestGenerateComplianceReport:
     """Test the compliance report MCP tool."""
 
-    async def test_report_structure(self) -> None:
+    async def test_report_structure(self, real_postgres: PostgresClient) -> None:
+        """Report with real audit data returns correct structure and calculations."""
         from vyapaar_mcp import server
 
         orig_postgres = server._postgres
 
         try:
-            mock_pg = MagicMock()
-            mock_pg.get_compliance_stats = AsyncMock(
-                return_value={
-                    "period_days": 7,
-                    "total_decisions": 20,
-                    "decisions": {
-                        "APPROVED": {"count": 15, "total_amount": 750000},
-                        "REJECTED": {"count": 5, "total_amount": 250000},
-                    },
-                    "top_rejection_reasons": [
-                        {"reason": "LIMIT_EXCEEDED", "count": 3},
-                    ],
-                    "agent_breakdown": {
-                        "agent-A": {
-                            "APPROVED": {"count": 10, "total_amount": 500000},
-                            "REJECTED": {"count": 5, "total_amount": 250000},
-                        },
-                    },
-                }
-            )
-            server._postgres = mock_pg
+            server._postgres = real_postgres
+
+            for i in range(10):
+                await real_postgres.write_audit_log(
+                    GovernanceResult(
+                        payout_id=f"pout_rpt_appr_a_{i}",
+                        agent_id="agent-A",
+                        amount=50000,
+                        decision=Decision.APPROVED,
+                        reason_code=ReasonCode.POLICY_OK,
+                        reason_detail="ok",
+                        threat_types=[],
+                        processing_ms=10,
+                    )
+                )
+
+            for i in range(5):
+                await real_postgres.write_audit_log(
+                    GovernanceResult(
+                        payout_id=f"pout_rpt_appr_b_{i}",
+                        agent_id="agent-B",
+                        amount=50000,
+                        decision=Decision.APPROVED,
+                        reason_code=ReasonCode.POLICY_OK,
+                        reason_detail="ok",
+                        threat_types=[],
+                        processing_ms=10,
+                    )
+                )
+
+            for i in range(5):
+                await real_postgres.write_audit_log(
+                    GovernanceResult(
+                        payout_id=f"pout_rpt_rej_{i}",
+                        agent_id="agent-A",
+                        amount=50000,
+                        decision=Decision.REJECTED,
+                        reason_code=ReasonCode.LIMIT_EXCEEDED,
+                        reason_detail="over limit",
+                        threat_types=[],
+                        processing_ms=10,
+                    )
+                )
 
             result = await server.generate_compliance_report(period_days=7)
 
@@ -295,24 +314,14 @@ class TestGenerateComplianceReport:
         finally:
             server._postgres = orig_postgres
 
-    async def test_empty_period(self) -> None:
+    async def test_empty_period(self, real_postgres: PostgresClient) -> None:
         """Report with zero decisions should return clean defaults."""
         from vyapaar_mcp import server
 
         orig_postgres = server._postgres
 
         try:
-            mock_pg = MagicMock()
-            mock_pg.get_compliance_stats = AsyncMock(
-                return_value={
-                    "period_days": 7,
-                    "total_decisions": 0,
-                    "decisions": {},
-                    "top_rejection_reasons": [],
-                    "agent_breakdown": {},
-                }
-            )
-            server._postgres = mock_pg
+            server._postgres = real_postgres
 
             result = await server.generate_compliance_report(period_days=7)
             assert result["summary"]["total_decisions"] == 0
@@ -331,6 +340,7 @@ class TestGetSpendingTrends:
     """Test the spending trends MCP tool."""
 
     async def test_trends_with_data(self, fake_redis: RedisClient) -> None:
+        """Trends with spend data returns correct summary."""
         from vyapaar_mcp import server
 
         orig_redis = server._redis
@@ -372,7 +382,10 @@ class TestGetSpendingTrends:
 class TestListAgents:
     """Test the list_agents MCP tool."""
 
-    async def test_agents_with_budget(self, fake_redis: RedisClient) -> None:
+    async def test_agents_with_budget(
+        self, fake_redis: RedisClient, real_postgres: PostgresClient
+    ) -> None:
+        """Agents list enriches policies with real-time budget data."""
         from vyapaar_mcp import server
 
         orig_redis = server._redis
@@ -380,28 +393,22 @@ class TestListAgents:
 
         try:
             server._redis = fake_redis
-            mock_pg = MagicMock()
-            mock_pg.list_all_agents = AsyncMock(
-                return_value=[
-                    {
-                        "agent_id": "agent-list-1",
-                        "daily_limit": 500000,
-                        "per_txn_limit": 100000,
-                        "require_approval_above": 50000,
-                        "allowed_domains": [],
-                        "blocked_domains": [],
-                        "created_at": "2026-01-01",
-                        "updated_at": "2026-01-01",
-                    },
-                ]
+            server._postgres = real_postgres
+
+            await real_postgres.upsert_agent_policy(
+                AgentPolicy(
+                    agent_id="agent-list-1",
+                    daily_limit=500000,
+                    per_txn_limit=100000,
+                    require_approval_above=50000,
+                )
             )
-            server._postgres = mock_pg
 
             await fake_redis.check_budget_atomic("agent-list-1", 250000, 500000)
 
             result = await server.list_agents()
-            assert result["total_agents"] == 1
-            agent = result["agents"][0]
+            assert result["total_agents"] >= 1
+            agent = next(a for a in result["agents"] if a["agent_id"] == "agent-list-1")
             assert agent["agent_id"] == "agent-list-1"
             assert agent["current_daily_spend_paise"] == 250000
             assert agent["utilisation_pct"] == 50.0
@@ -410,7 +417,10 @@ class TestListAgents:
             server._redis = orig_redis
             server._postgres = orig_postgres
 
-    async def test_empty_agents(self, fake_redis: RedisClient) -> None:
+    async def test_empty_agents(
+        self, fake_redis: RedisClient, real_postgres: PostgresClient
+    ) -> None:
+        """Empty agent list when no policies exist."""
         from vyapaar_mcp import server
 
         orig_redis = server._redis
@@ -418,9 +428,10 @@ class TestListAgents:
 
         try:
             server._redis = fake_redis
-            mock_pg = MagicMock()
-            mock_pg.list_all_agents = AsyncMock(return_value=[])
-            server._postgres = mock_pg
+            server._postgres = real_postgres
+
+            async with real_postgres.pool.acquire() as conn:
+                await conn.execute("DELETE FROM agent_policies")
 
             result = await server.list_agents()
             assert result["total_agents"] == 0
@@ -439,9 +450,14 @@ class TestListAgents:
 class TestEvaluatePayout:
     """Test the evaluate_payout orchestrator tool."""
 
-    async def test_approved_payout(self, fake_redis: RedisClient) -> None:
+    async def test_approved_payout(
+        self,
+        fake_redis: RedisClient,
+        real_postgres: PostgresClient,
+        safe_browsing_safe,
+    ) -> None:
+        """Payout within policy limits is APPROVED by the real engine."""
         from vyapaar_mcp import server
-        from vyapaar_mcp.models import Decision, GovernanceResult, ReasonCode
 
         orig_redis = server._redis
         orig_postgres = server._postgres
@@ -449,28 +465,18 @@ class TestEvaluatePayout:
 
         try:
             server._redis = fake_redis
-
-            mock_result = GovernanceResult(
-                payout_id="eval_test_123",
-                agent_id="agent-eval",
-                amount=50000,
-                decision=Decision.APPROVED,
-                reason_code=ReasonCode.POLICY_OK,
-                reason_detail="All checks passed",
-                threat_types=[],
-                processing_ms=42,
+            server._postgres = real_postgres
+            server._governance = GovernanceEngine(
+                redis=fake_redis,
+                postgres=real_postgres,
+                safe_browsing=safe_browsing_safe,
+                rate_limit_max=100,
+                rate_limit_window=60,
             )
-            mock_gov = MagicMock()
-            mock_gov.evaluate = AsyncMock(return_value=mock_result)
-            server._governance = mock_gov
-
-            mock_pg = MagicMock()
-            mock_pg.write_audit_log = AsyncMock()
-            server._postgres = mock_pg
 
             result = await server.evaluate_payout(
                 amount=50000,
-                agent_id="agent-eval",
+                agent_id="test-agent-001",
                 vendor_name="Safe Corp",
                 vendor_url="https://safe.com",
                 purpose="Software license",
@@ -478,16 +484,21 @@ class TestEvaluatePayout:
 
             assert result["decision"] == "APPROVED"
             assert result["amount_paise"] == 50000
-            assert result["agent_id"] == "agent-eval"
+            assert result["agent_id"] == "test-agent-001"
             assert "processing_ms" in result
         finally:
             server._redis = orig_redis
             server._postgres = orig_postgres
             server._governance = orig_governance
 
-    async def test_rejected_payout(self, fake_redis: RedisClient) -> None:
+    async def test_rejected_payout(
+        self,
+        fake_redis: RedisClient,
+        real_postgres: PostgresClient,
+        safe_browsing_safe,
+    ) -> None:
+        """Payout exceeding daily budget limit is REJECTED by the real engine."""
         from vyapaar_mcp import server
-        from vyapaar_mcp.models import Decision, GovernanceResult, ReasonCode
 
         orig_redis = server._redis
         orig_postgres = server._postgres
@@ -495,24 +506,22 @@ class TestEvaluatePayout:
 
         try:
             server._redis = fake_redis
+            server._postgres = real_postgres
 
-            mock_result = GovernanceResult(
-                payout_id="eval_test_456",
-                agent_id="agent-eval",
-                amount=999999,
-                decision=Decision.REJECTED,
-                reason_code=ReasonCode.LIMIT_EXCEEDED,
-                reason_detail="Daily limit exceeded",
-                threat_types=[],
-                processing_ms=15,
+            await real_postgres.upsert_agent_policy(
+                AgentPolicy(
+                    agent_id="agent-eval",
+                    daily_limit=100000,
+                )
             )
-            mock_gov = MagicMock()
-            mock_gov.evaluate = AsyncMock(return_value=mock_result)
-            server._governance = mock_gov
 
-            mock_pg = MagicMock()
-            mock_pg.write_audit_log = AsyncMock()
-            server._postgres = mock_pg
+            server._governance = GovernanceEngine(
+                redis=fake_redis,
+                postgres=real_postgres,
+                safe_browsing=safe_browsing_safe,
+                rate_limit_max=100,
+                rate_limit_window=60,
+            )
 
             result = await server.evaluate_payout(
                 amount=999999,

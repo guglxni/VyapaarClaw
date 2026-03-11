@@ -7,26 +7,19 @@ Tests cover:
 - Reasoning model response parsing
 - Error handling (401, 404, 429, timeout, empty response)
 - Client lifecycle (init, close, double-close)
-"""
 
-# Note: httpx.Response requires a request= parameter for raise_for_status()
-# to work. We use _MOCK_REQUEST for all test responses.
+All HTTP interactions use httpx.MockTransport — no unittest.mock.
+"""
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+import json
 
 import httpx
 import pytest
 
 from vyapaar_mcp.config import VyapaarConfig
 from vyapaar_mcp.llm.azure_client import AzureOpenAIClient
-
-# Shared mock request for httpx.Response construction
-_MOCK_REQUEST = httpx.Request(
-    "POST", "https://vyapaar.services.ai.azure.com/models/chat/completions"
-)
-
 
 # ================================================================
 # Fixtures
@@ -81,14 +74,19 @@ def client(config_with_key: VyapaarConfig) -> AzureOpenAIClient:
     return AzureOpenAIClient(config_with_key)
 
 
-def _mock_kimi_response(
+# ================================================================
+# Helpers
+# ================================================================
+
+
+def _kimi_response_json(
     content: str | None = "Hello!",
     reasoning: str | None = "Thinking about this...",
     prompt_tokens: int = 10,
     completion_tokens: int = 50,
     finish_reason: str = "stop",
 ) -> dict:
-    """Build a mock Kimi K2.5 API response."""
+    """Build a Kimi K2.5 API response payload."""
     message: dict = {"role": "assistant", "content": content}
     if reasoning is not None:
         message["reasoning_content"] = reasoning
@@ -108,6 +106,15 @@ def _mock_kimi_response(
         "model": "Kimi-K2.5",
         "id": "test-id-123",
     }
+
+
+def _inject_transport(client: AzureOpenAIClient, handler) -> None:
+    """Replace the internal httpx client with one backed by MockTransport.
+
+    This is httpx's built-in test infrastructure, not mocking.
+    """
+    assert client._client is not None
+    client._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
 # ================================================================
@@ -158,14 +165,14 @@ class TestInitialization:
     @pytest.mark.asyncio
     async def test_close_uninitialised(self, client: AzureOpenAIClient) -> None:
         """Closing an uninitialised client should not raise."""
-        await client.close()  # Should not raise
+        await client.close()
 
     @pytest.mark.asyncio
     async def test_close_twice(self, client: AzureOpenAIClient) -> None:
         """Double close should be safe."""
         await client.initialize()
         await client.close()
-        await client.close()  # Should not raise
+        await client.close()
 
 
 # ================================================================
@@ -181,17 +188,17 @@ class TestChatCompletionSuccess:
         """Test basic chat completion with content + reasoning."""
         await client.initialize()
 
-        mock_resp = httpx.Response(
-            200,
-            json=_mock_kimi_response("Hello there!", "I should greet the user."),
-            request=_MOCK_REQUEST,
-        )
-
-        with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_resp):
-            response, status = await client.chat_completion(
-                messages=[{"role": "user", "content": "Say hello"}],
-                max_tokens=500,
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200, json=_kimi_response_json("Hello there!", "I should greet the user.")
             )
+
+        _inject_transport(client, handler)
+
+        response, status = await client.chat_completion(
+            messages=[{"role": "user", "content": "Say hello"}],
+            max_tokens=500,
+        )
 
         assert status == "success"
         assert response == "Hello there!"
@@ -202,16 +209,14 @@ class TestChatCompletionSuccess:
         """Test response without reasoning_content field."""
         await client.initialize()
 
-        mock_resp = httpx.Response(
-            200,
-            json=_mock_kimi_response("Hello!", None),
-            request=_MOCK_REQUEST,
-        )
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=_kimi_response_json("Hello!", None))
 
-        with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_resp):
-            response, status = await client.chat_completion(
-                messages=[{"role": "user", "content": "Hi"}],
-            )
+        _inject_transport(client, handler)
+
+        response, status = await client.chat_completion(
+            messages=[{"role": "user", "content": "Hi"}],
+        )
 
         assert status == "success"
         assert response == "Hello!"
@@ -222,24 +227,23 @@ class TestChatCompletionSuccess:
         """Test that temperature is passed through."""
         await client.initialize()
 
-        mock_resp = httpx.Response(200, json=_mock_kimi_response("Test"), request=_MOCK_REQUEST)
+        captured: dict = {}
 
-        with patch.object(
-            client._client, "post", new_callable=AsyncMock, return_value=mock_resp
-        ) as mock_post:
-            await client.chat_completion(
-                messages=[{"role": "user", "content": "Test"}],
-                temperature=0.1,
-                max_tokens=100,
-            )
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["body"] = json.loads(request.content)
+            return httpx.Response(200, json=_kimi_response_json("Test"))
 
-            # Verify the request body
-            call_args = mock_post.call_args
-            body = call_args[1]["json"]
-            assert body["temperature"] == 0.1
-            assert body["max_tokens"] == 100
-            assert body["model"] == "kimi-k2.5"
+        _inject_transport(client, handler)
 
+        await client.chat_completion(
+            messages=[{"role": "user", "content": "Test"}],
+            temperature=0.1,
+            max_tokens=100,
+        )
+
+        assert captured["body"]["temperature"] == 0.1
+        assert captured["body"]["max_tokens"] == 100
+        assert captured["body"]["model"] == "kimi-k2.5"
         await client.close()
 
     @pytest.mark.asyncio
@@ -247,19 +251,20 @@ class TestChatCompletionSuccess:
         """Test that max_tokens is omitted when None."""
         await client.initialize()
 
-        mock_resp = httpx.Response(200, json=_mock_kimi_response(), request=_MOCK_REQUEST)
+        captured: dict = {}
 
-        with patch.object(
-            client._client, "post", new_callable=AsyncMock, return_value=mock_resp
-        ) as mock_post:
-            await client.chat_completion(
-                messages=[{"role": "user", "content": "Hi"}],
-                max_tokens=None,
-            )
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["body"] = json.loads(request.content)
+            return httpx.Response(200, json=_kimi_response_json())
 
-            body = mock_post.call_args[1]["json"]
-            assert "max_tokens" not in body
+        _inject_transport(client, handler)
 
+        await client.chat_completion(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=None,
+        )
+
+        assert "max_tokens" not in captured["body"]
         await client.close()
 
 
@@ -285,12 +290,14 @@ class TestChatCompletionErrors:
         """Test 401 Unauthorized response."""
         await client.initialize()
 
-        mock_resp = httpx.Response(401, json={"error": "Unauthorized"}, request=_MOCK_REQUEST)
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(401, json={"error": "Unauthorized"})
 
-        with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_resp):
-            response, status = await client.chat_completion(
-                messages=[{"role": "user", "content": "Hi"}],
-            )
+        _inject_transport(client, handler)
+
+        response, status = await client.chat_completion(
+            messages=[{"role": "user", "content": "Hi"}],
+        )
 
         assert response is None
         assert "Authentication failed" in status
@@ -301,12 +308,14 @@ class TestChatCompletionErrors:
         """Test 404 Not Found response."""
         await client.initialize()
 
-        mock_resp = httpx.Response(404, json={"error": "Not found"}, request=_MOCK_REQUEST)
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, json={"error": "Not found"})
 
-        with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_resp):
-            response, status = await client.chat_completion(
-                messages=[{"role": "user", "content": "Hi"}],
-            )
+        _inject_transport(client, handler)
+
+        response, status = await client.chat_completion(
+            messages=[{"role": "user", "content": "Hi"}],
+        )
 
         assert response is None
         assert "not found" in status
@@ -317,12 +326,14 @@ class TestChatCompletionErrors:
         """Test 429 Too Many Requests response."""
         await client.initialize()
 
-        mock_resp = httpx.Response(429, json={"error": "Rate limited"}, request=_MOCK_REQUEST)
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(429, json={"error": "Rate limited"})
 
-        with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_resp):
-            response, status = await client.chat_completion(
-                messages=[{"role": "user", "content": "Hi"}],
-            )
+        _inject_transport(client, handler)
+
+        response, status = await client.chat_completion(
+            messages=[{"role": "user", "content": "Hi"}],
+        )
 
         assert response is None
         assert "Rate limited" in status
@@ -333,15 +344,14 @@ class TestChatCompletionErrors:
         """Test timeout handling."""
         await client.initialize()
 
-        with patch.object(
-            client._client,
-            "post",
-            new_callable=AsyncMock,
-            side_effect=httpx.TimeoutException("Connection timed out"),
-        ):
-            response, status = await client.chat_completion(
-                messages=[{"role": "user", "content": "Hi"}],
-            )
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.TimeoutException("Connection timed out")
+
+        _inject_transport(client, handler)
+
+        response, status = await client.chat_completion(
+            messages=[{"role": "user", "content": "Hi"}],
+        )
 
         assert response is None
         assert "timed out" in status
@@ -352,12 +362,14 @@ class TestChatCompletionErrors:
         """Test empty choices array in response."""
         await client.initialize()
 
-        mock_resp = httpx.Response(200, json={"choices": [], "usage": {}}, request=_MOCK_REQUEST)
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"choices": [], "usage": {}})
 
-        with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_resp):
-            response, status = await client.chat_completion(
-                messages=[{"role": "user", "content": "Hi"}],
-            )
+        _inject_transport(client, handler)
+
+        response, status = await client.chat_completion(
+            messages=[{"role": "user", "content": "Hi"}],
+        )
 
         assert response is None
         assert "Empty response" in status
@@ -368,21 +380,22 @@ class TestChatCompletionErrors:
         """Test when reasoning uses all tokens and content is None."""
         await client.initialize()
 
-        mock_resp = httpx.Response(
-            200,
-            json=_mock_kimi_response(
-                content=None,
-                reasoning="Very long reasoning...",
-                finish_reason="length",
-            ),
-            request=_MOCK_REQUEST,
-        )
-
-        with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_resp):
-            response, status = await client.chat_completion(
-                messages=[{"role": "user", "content": "Hi"}],
-                max_tokens=50,
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json=_kimi_response_json(
+                    content=None,
+                    reasoning="Very long reasoning...",
+                    finish_reason="length",
+                ),
             )
+
+        _inject_transport(client, handler)
+
+        response, status = await client.chat_completion(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=50,
+        )
 
         assert response is None
         assert "reasoning consumed all tokens" in status
@@ -393,16 +406,14 @@ class TestChatCompletionErrors:
         """Test 500 Internal Server Error handling."""
         await client.initialize()
 
-        mock_resp = httpx.Response(
-            500,
-            json={"error": "Internal server error"},
-            request=httpx.Request("POST", "https://example.com"),
-        )
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(500, json={"error": "Internal server error"})
 
-        with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_resp):
-            response, status = await client.chat_completion(
-                messages=[{"role": "user", "content": "Hi"}],
-            )
+        _inject_transport(client, handler)
+
+        response, status = await client.chat_completion(
+            messages=[{"role": "user", "content": "Hi"}],
+        )
 
         assert response is None
         assert "500" in status
@@ -413,15 +424,14 @@ class TestChatCompletionErrors:
         """Test handling of unexpected exceptions."""
         await client.initialize()
 
-        with patch.object(
-            client._client,
-            "post",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("Something went wrong"),
-        ):
-            response, status = await client.chat_completion(
-                messages=[{"role": "user", "content": "Hi"}],
-            )
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise RuntimeError("Something went wrong")
+
+        _inject_transport(client, handler)
+
+        response, status = await client.chat_completion(
+            messages=[{"role": "user", "content": "Hi"}],
+        )
 
         assert response is None
         assert "Something went wrong" in status
@@ -441,22 +451,21 @@ class TestURLConstruction:
         """Verify the correct URL is built from endpoint + /chat/completions."""
         await client.initialize()
 
-        mock_resp = httpx.Response(200, json=_mock_kimi_response(), request=_MOCK_REQUEST)
+        captured: dict = {}
 
-        with patch.object(
-            client._client, "post", new_callable=AsyncMock, return_value=mock_resp
-        ) as mock_post:
-            await client.chat_completion(
-                messages=[{"role": "user", "content": "Hi"}],
-            )
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["url"] = str(request.url)
+            return httpx.Response(200, json=_kimi_response_json())
 
-            call_args = mock_post.call_args
-            url = call_args[0][0]
-            params = call_args[1]["params"]
+        _inject_transport(client, handler)
 
-            assert url == "https://vyapaar.services.ai.azure.com/models/chat/completions"
-            assert params == {"api-version": "2024-05-01-preview"}
+        await client.chat_completion(
+            messages=[{"role": "user", "content": "Hi"}],
+        )
 
+        url = captured["url"]
+        assert url.startswith("https://vyapaar.services.ai.azure.com/models/chat/completions")
+        assert "api-version=2024-05-01-preview" in url
         await client.close()
 
     @pytest.mark.asyncio
@@ -466,16 +475,19 @@ class TestURLConstruction:
         client = AzureOpenAIClient(config_with_key)
         await client.initialize()
 
-        mock_resp = httpx.Response(200, json=_mock_kimi_response(), request=_MOCK_REQUEST)
+        captured: dict = {}
 
-        with patch.object(
-            client._client, "post", new_callable=AsyncMock, return_value=mock_resp
-        ) as mock_post:
-            await client.chat_completion(
-                messages=[{"role": "user", "content": "Hi"}],
-            )
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["url"] = str(request.url)
+            return httpx.Response(200, json=_kimi_response_json())
 
-            url = mock_post.call_args[0][0]
-            assert url == "https://vyapaar.services.ai.azure.com/models/chat/completions"
+        _inject_transport(client, handler)
 
+        await client.chat_completion(
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+
+        url = captured["url"]
+        assert "/models/chat/completions" in url
+        assert "/models//chat" not in url
         await client.close()

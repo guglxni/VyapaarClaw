@@ -1,30 +1,33 @@
 """Tests for circuit breaker, rate limiting, and Slack interactive buttons.
 
 Covers:
-- CircuitBreaker state transitions (CLOSED → OPEN → HALF_OPEN → CLOSED)
+- CircuitBreaker state transitions (CLOSED -> OPEN -> HALF_OPEN -> CLOSED)
 - CircuitOpenError raised when circuit is open
 - CircuitBreaker.reset() and snapshot()
 - Redis sliding-window rate limiter
 - GovernanceEngine rate limit integration
 - Slack interactive approve/reject buttons in Block Kit
 - SlackNotifier.update_approval_message()
+
+All tests use real instances — no unittest.mock.
+HTTP calls use httpx.MockTransport, governance uses real_postgres + safe_browsing_safe.
 """
 
 from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
+from vyapaar_mcp.db.postgres import PostgresClient
 from vyapaar_mcp.db.redis_client import RedisClient
 from vyapaar_mcp.governance.engine import GovernanceEngine
 from vyapaar_mcp.models import (
     Decision,
     PayoutEntity,
     ReasonCode,
-    SafeBrowsingResponse,
 )
 from vyapaar_mcp.resilience import CircuitBreaker, CircuitOpenError, CircuitState
 
@@ -276,21 +279,19 @@ class TestGovernanceRateLimit:
     """GovernanceEngine rejects when rate limit is exceeded."""
 
     async def test_rate_limited_rejects(
-        self, fake_redis: RedisClient, mock_postgres: MagicMock
+        self,
+        fake_redis: RedisClient,
+        real_postgres: PostgresClient,
+        safe_browsing_safe,
     ) -> None:
         """Agent exceeding rate limit gets RATE_LIMITED rejection."""
-        safe_browsing = MagicMock()
-        safe_browsing.check_url = AsyncMock(return_value=SafeBrowsingResponse())
-
         engine = GovernanceEngine(
             fake_redis,
-            mock_postgres,
-            safe_browsing,
+            real_postgres,
+            safe_browsing_safe,
             rate_limit_max=3,
             rate_limit_window=60,
         )
-
-        PayoutEntity(id="pout_rl_1", amount=1000, status="queued")
 
         # Use up the rate limit
         for i in range(3):
@@ -311,16 +312,16 @@ class TestGovernanceRateLimit:
         assert "Rate limit exceeded" in (result.reason_detail or "")
 
     async def test_rate_limit_disabled_when_zero(
-        self, fake_redis: RedisClient, mock_postgres: MagicMock
+        self,
+        fake_redis: RedisClient,
+        real_postgres: PostgresClient,
+        safe_browsing_safe,
     ) -> None:
         """rate_limit_max=0 disables rate limiting entirely."""
-        safe_browsing = MagicMock()
-        safe_browsing.check_url = AsyncMock(return_value=SafeBrowsingResponse())
-
         engine = GovernanceEngine(
             fake_redis,
-            mock_postgres,
-            safe_browsing,
+            real_postgres,
+            safe_browsing_safe,
             rate_limit_max=0,
             rate_limit_window=60,
         )
@@ -409,25 +410,28 @@ class TestSlackInteractiveButtons:
         """update_approval_message should call Slack chat.update API."""
         from vyapaar_mcp.egress.slack_notifier import SlackNotifier
 
+        captured: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["url"] = str(request.url)
+            return httpx.Response(200, json={"ok": True})
+
         notifier = SlackNotifier(
             bot_token="xoxb-test-token",
             channel_id="C1234567890",
         )
+        notifier._http = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://slack.com/api",
+        )
 
-        with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {"ok": True}
-            mock_post.return_value = mock_response
+        result = await notifier.update_approval_message(
+            channel="C1234567890",
+            message_ts="1234567890.123456",
+            payout_id="pout_update_001",
+            action="approve",
+            user_name="test-user",
+        )
 
-            await notifier.update_approval_message(
-                channel="C1234567890",
-                message_ts="1234567890.123456",
-                payout_id="pout_update_001",
-                action="approve",
-                user_name="test-user",
-            )
-
-            mock_post.assert_called_once()
-            call_args = mock_post.call_args
-            assert "chat.update" in str(call_args)
+        assert result is True
+        assert "chat.update" in captured["url"]

@@ -1,18 +1,81 @@
-"""Tests for GLEIF vendor verification integration."""
+"""Tests for GLEIF vendor verification integration.
+
+All HTTP interactions use httpx.MockTransport — no unittest.mock.
+Circuit breaker tests drive a real CircuitBreaker to its threshold.
+"""
 
 from __future__ import annotations
-
-from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 
+from vyapaar_mcp.db.redis_client import RedisClient
 from vyapaar_mcp.reputation.gleif import (
     GLEIFChecker,
     GLEIFEntity,
     GLEIFResponse,
 )
-from vyapaar_mcp.resilience import CircuitBreaker, CircuitOpenError
+from vyapaar_mcp.resilience import CircuitBreaker, CircuitState
+
+# ================================================================
+# Shared GLEIF API Response Payloads
+# ================================================================
+
+_SEARCH_RESPONSE_RAHUL = {
+    "data": [
+        {
+            "id": "9845001B2AD43E664E58",
+            "type": "lei-records",
+            "attributes": {
+                "lei": "9845001B2AD43E664E58",
+                "entity": {
+                    "legalName": {"name": "RAHUL", "language": "en"},
+                    "jurisdiction": "IN",
+                    "category": "SOLE_PROPRIETOR",
+                    "status": "ACTIVE",
+                    "headquartersAddress": {
+                        "city": "SONIPAT",
+                        "country": "IN",
+                    },
+                },
+                "registration": {
+                    "status": "ISSUED",
+                },
+            },
+        }
+    ]
+}
+
+_LOOKUP_RESPONSE_RAHUL = {
+    "data": {
+        "id": "9845001B2AD43E664E58",
+        "type": "lei-records",
+        "attributes": {
+            "lei": "9845001B2AD43E664E58",
+            "entity": {
+                "legalName": {"name": "RAHUL", "language": "en"},
+                "jurisdiction": "IN",
+                "category": "SOLE_PROPRIETOR",
+                "status": "ACTIVE",
+                "headquartersAddress": {"city": "SONIPAT", "country": "IN"},
+            },
+            "registration": {"status": "ISSUED"},
+        },
+    }
+}
+
+
+# ================================================================
+# Helpers
+# ================================================================
+
+
+def _gleif_checker_with_transport(handler, **checker_kwargs) -> GLEIFChecker:
+    """Create a GLEIFChecker whose HTTP client uses the given MockTransport handler."""
+    checker = GLEIFChecker(**checker_kwargs)
+    checker._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return checker
+
 
 # ================================================================
 # GLEIFEntity Tests
@@ -152,43 +215,12 @@ class TestGLEIFChecker:
         await checker.close()
 
     async def test_search_entity_success(self) -> None:
-        """Test successful GLEIF API search with mocked HTTP response."""
-        # Mock response matching real GLEIF API format
-        # (reference: .reference/pygleif/tests/fixtures/9845001B2AD43E664E58_issued.json)
-        mock_response = {
-            "data": [
-                {
-                    "id": "9845001B2AD43E664E58",
-                    "type": "lei-records",
-                    "attributes": {
-                        "lei": "9845001B2AD43E664E58",
-                        "entity": {
-                            "legalName": {"name": "RAHUL", "language": "en"},
-                            "jurisdiction": "IN",
-                            "category": "SOLE_PROPRIETOR",
-                            "status": "ACTIVE",
-                            "headquartersAddress": {
-                                "city": "SONIPAT",
-                                "country": "IN",
-                            },
-                        },
-                        "registration": {
-                            "status": "ISSUED",
-                        },
-                    },
-                }
-            ]
-        }
+        """Test successful GLEIF API search with httpx MockTransport."""
 
-        mock_http_response = MagicMock()
-        mock_http_response.status_code = 200
-        mock_http_response.json.return_value = mock_response
-        mock_http_response.raise_for_status = MagicMock()
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=_SEARCH_RESPONSE_RAHUL)
 
-        checker = GLEIFChecker()
-        checker._client = MagicMock()
-        checker._client.get = AsyncMock(return_value=mock_http_response)
-        checker._client.aclose = AsyncMock()
+        checker = _gleif_checker_with_transport(handler)
 
         result = await checker.search_entity("RAHUL")
 
@@ -204,15 +236,10 @@ class TestGLEIFChecker:
         await checker.close()
 
     async def test_search_entity_no_results(self) -> None:
-        mock_http_response = MagicMock()
-        mock_http_response.status_code = 200
-        mock_http_response.json.return_value = {"data": []}
-        mock_http_response.raise_for_status = MagicMock()
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"data": []})
 
-        checker = GLEIFChecker()
-        checker._client = MagicMock()
-        checker._client.get = AsyncMock(return_value=mock_http_response)
-        checker._client.aclose = AsyncMock()
+        checker = _gleif_checker_with_transport(handler)
 
         result = await checker.search_entity("Nonexistent Corp XYZ")
 
@@ -221,10 +248,10 @@ class TestGLEIFChecker:
         await checker.close()
 
     async def test_search_entity_timeout(self) -> None:
-        checker = GLEIFChecker()
-        checker._client = MagicMock()
-        checker._client.get = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
-        checker._client.aclose = AsyncMock()
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.TimeoutException("timeout")
+
+        checker = _gleif_checker_with_transport(handler)
 
         result = await checker.search_entity("Test Corp")
 
@@ -233,12 +260,21 @@ class TestGLEIFChecker:
         await checker.close()
 
     async def test_search_entity_circuit_open(self) -> None:
-        cb = MagicMock(spec=CircuitBreaker)
-        cb.call = AsyncMock(side_effect=CircuitOpenError("gleif", 30))
+        """Drive a real CircuitBreaker to OPEN, then verify GLEIFChecker handles it."""
+        cb = CircuitBreaker("gleif", failure_threshold=1, recovery_timeout=60.0)
 
-        checker = GLEIFChecker(circuit_breaker=cb)
-        checker._client = MagicMock()
-        checker._client.aclose = AsyncMock()
+        async def trip() -> None:
+            raise RuntimeError("service down")
+
+        with pytest.raises(RuntimeError):
+            await cb.call(trip)
+
+        assert cb.state == CircuitState.OPEN
+
+        def should_not_be_called(request: httpx.Request) -> httpx.Response:
+            raise AssertionError("HTTP should not be called when circuit is open")
+
+        checker = _gleif_checker_with_transport(should_not_be_called, circuit_breaker=cb)
 
         result = await checker.search_entity("Test Corp")
 
@@ -253,33 +289,10 @@ class TestGLEIFChecker:
         await checker.close()
 
     async def test_lookup_lei_success(self) -> None:
-        mock_response = {
-            "data": {
-                "id": "9845001B2AD43E664E58",
-                "type": "lei-records",
-                "attributes": {
-                    "lei": "9845001B2AD43E664E58",
-                    "entity": {
-                        "legalName": {"name": "RAHUL", "language": "en"},
-                        "jurisdiction": "IN",
-                        "category": "SOLE_PROPRIETOR",
-                        "status": "ACTIVE",
-                        "headquartersAddress": {"city": "SONIPAT", "country": "IN"},
-                    },
-                    "registration": {"status": "ISSUED"},
-                },
-            }
-        }
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=_LOOKUP_RESPONSE_RAHUL)
 
-        mock_http_response = MagicMock()
-        mock_http_response.status_code = 200
-        mock_http_response.json.return_value = mock_response
-        mock_http_response.raise_for_status = MagicMock()
-
-        checker = GLEIFChecker()
-        checker._client = MagicMock()
-        checker._client.get = AsyncMock(return_value=mock_http_response)
-        checker._client.aclose = AsyncMock()
+        checker = _gleif_checker_with_transport(handler)
 
         result = await checker.lookup_lei("9845001B2AD43E664E58")
 
@@ -288,14 +301,10 @@ class TestGLEIFChecker:
         await checker.close()
 
     async def test_lookup_lei_not_found(self) -> None:
-        mock_http_response = MagicMock()
-        mock_http_response.status_code = 404
-        mock_http_response.json.return_value = {}
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, json={})
 
-        checker = GLEIFChecker()
-        checker._client = MagicMock()
-        checker._client.get = AsyncMock(return_value=mock_http_response)
-        checker._client.aclose = AsyncMock()
+        checker = _gleif_checker_with_transport(handler)
 
         result = await checker.lookup_lei("00000000000000000000")
 
@@ -303,9 +312,11 @@ class TestGLEIFChecker:
         assert result.error == "LEI not found"
         await checker.close()
 
-    async def test_redis_caching(self, fake_redis) -> None:
+    async def test_redis_caching(self, fake_redis: RedisClient) -> None:
         """Test that results are cached in Redis."""
-        mock_response = {
+        call_count = {"n": 0}
+
+        cached_response = {
             "data": [
                 {
                     "id": "TEST1234567890123456",
@@ -325,34 +336,30 @@ class TestGLEIFChecker:
             ]
         }
 
-        mock_http_response = MagicMock()
-        mock_http_response.status_code = 200
-        mock_http_response.json.return_value = mock_response
-        mock_http_response.raise_for_status = MagicMock()
+        def handler(request: httpx.Request) -> httpx.Response:
+            call_count["n"] += 1
+            return httpx.Response(200, json=cached_response)
 
-        checker = GLEIFChecker(redis=fake_redis)
-        checker._client = MagicMock()
-        checker._client.get = AsyncMock(return_value=mock_http_response)
-        checker._client.aclose = AsyncMock()
+        checker = _gleif_checker_with_transport(handler, redis=fake_redis)
 
-        # First call — should hit API
+        # First call — should hit the transport handler
         result1 = await checker.search_entity("Cached Corp")
         assert result1.is_verified is True
-        assert checker._client.get.call_count == 1
+        assert call_count["n"] == 1
 
-        # Second call — should hit cache
+        # Second call — should hit Redis cache, not the handler
         result2 = await checker.search_entity("Cached Corp")
         assert result2.is_verified is True
-        assert checker._client.get.call_count == 1  # No additional API call
+        assert call_count["n"] == 1
 
         await checker.close()
 
     async def test_parse_records_handles_bad_data(self) -> None:
         """Ensure malformed records don't crash the parser."""
         records = [
-            {"attributes": {}},  # Missing entity/registration
+            {"attributes": {}},
             {"bad_key": "bad_value"},
-            {  # Valid record
+            {
                 "id": "VALID12345678901234",
                 "attributes": {
                     "lei": "VALID12345678901234",
@@ -368,6 +375,5 @@ class TestGLEIFChecker:
             },
         ]
         entities = GLEIFChecker._parse_records(records)
-        # Should parse at least the well-formed ones without crashing
         assert len(entities) >= 1
         assert any(e.lei == "VALID12345678901234" for e in entities)

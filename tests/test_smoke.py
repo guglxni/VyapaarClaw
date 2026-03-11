@@ -5,18 +5,21 @@ Tests verify:
 - Governance engine decision matrix (all 7 outcomes)
 - Budget enforcement with reset
 - Config loads with Kimi K2.5 defaults
-- Demo entry point callable without crash
+
+Zero mocks. Uses real PostgresClient, real RedisClient (fakeredis),
+and real SafeBrowsingChecker subclass.
 """
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from tests.conftest import StubSafeBrowsingChecker
 from vyapaar_mcp.config import VyapaarConfig
+from vyapaar_mcp.db.postgres import PostgresClient
 from vyapaar_mcp.db.redis_client import RedisClient
 from vyapaar_mcp.governance.engine import GovernanceEngine
 from vyapaar_mcp.models import (
@@ -35,7 +38,6 @@ class TestConfigSmoke:
     """Verify config loads correctly with Kimi K2.5 defaults."""
 
     def test_kimi_k2_5_default_model(self) -> None:
-        """Default model should be kimi-k2.5."""
         config = VyapaarConfig(
             razorpay_key_id="rzp_test_xxx",
             razorpay_key_secret="secret",
@@ -45,7 +47,6 @@ class TestConfigSmoke:
         assert config.azure_openai_deployment == "kimi-k2.5"
 
     def test_kimi_k2_5_default_api_version(self) -> None:
-        """Default API version should be 2024-05-01-preview."""
         config = VyapaarConfig(
             razorpay_key_id="rzp_test_xxx",
             razorpay_key_secret="secret",
@@ -55,7 +56,6 @@ class TestConfigSmoke:
         assert config.azure_openai_api_version == "2024-05-01-preview"
 
     def test_kimi_k2_5_default_endpoint(self) -> None:
-        """Default endpoint should point to Azure AI Services."""
         config = VyapaarConfig(
             razorpay_key_id="rzp_test_xxx",
             razorpay_key_secret="secret",
@@ -72,24 +72,26 @@ class TestConfigSmoke:
 
 @pytest.mark.asyncio
 class TestGovernanceDecisionMatrix:
-    """Test all 7 decision paths in the governance engine."""
+    """Test all 7 decision paths using real components."""
 
     @pytest.fixture
-    def engine(self, fake_redis: RedisClient, fake_postgres: MagicMock) -> GovernanceEngine:
-        """Create a governance engine with fakes."""
-        safe_browsing = MagicMock()
+    def engine(
+        self,
+        fake_redis: RedisClient,
+        real_postgres: PostgresClient,
+    ) -> GovernanceEngine:
+        safe_browsing = StubSafeBrowsingChecker(threat_map={})
         return GovernanceEngine(
             redis=fake_redis,
-            postgres=fake_postgres,
+            postgres=real_postgres,
             safe_browsing=safe_browsing,
         )
 
     @pytest.fixture
     def payout(self) -> PayoutEntity:
-        """Create a standard test payout."""
         return PayoutEntity(
             id="pout_test_001",
-            amount=100000,  # ₹1,000
+            amount=100000,
             currency="INR",
             status="queued",
             mode="IMPS",
@@ -98,12 +100,11 @@ class TestGovernanceDecisionMatrix:
 
     @pytest.fixture
     def policy(self) -> AgentPolicy:
-        """Standard agent policy."""
         return AgentPolicy(
-            agent_id="test-agent",
-            daily_limit=500000,  # ₹5,000
-            per_txn_limit=200000,  # ₹2,000
-            require_approval_above=150000,  # ₹1,500
+            agent_id="smoke-agent",
+            daily_limit=500000,
+            per_txn_limit=200000,
+            require_approval_above=150000,
             allowed_domains=[],
             blocked_domains=["evil.xyz"],
         )
@@ -112,12 +113,8 @@ class TestGovernanceDecisionMatrix:
         self,
         engine: GovernanceEngine,
         payout: PayoutEntity,
-        fake_postgres: MagicMock,
     ) -> None:
-        """No policy → REJECT."""
-        fake_postgres.get_agent_policy = AsyncMock(return_value=None)
-
-        result = await engine.evaluate(payout, "unknown-agent")
+        result = await engine.evaluate(payout, "unknown-agent-zzz")
         assert result.decision == Decision.REJECTED
         assert result.reason_code == ReasonCode.NO_POLICY
 
@@ -125,10 +122,9 @@ class TestGovernanceDecisionMatrix:
         self,
         engine: GovernanceEngine,
         policy: AgentPolicy,
-        fake_postgres: MagicMock,
+        real_postgres: PostgresClient,
     ) -> None:
-        """Amount > per_txn_limit → REJECT."""
-        fake_postgres.get_agent_policy = AsyncMock(return_value=policy)
+        await real_postgres.upsert_agent_policy(policy)
 
         big_payout = PayoutEntity(
             id="pout_big",
@@ -139,7 +135,7 @@ class TestGovernanceDecisionMatrix:
             purpose="vendor_payment",
         )
 
-        result = await engine.evaluate(big_payout, "test-agent")
+        result = await engine.evaluate(big_payout, "smoke-agent")
         assert result.decision == Decision.REJECTED
         assert result.reason_code == ReasonCode.TXN_LIMIT_EXCEEDED
 
@@ -148,32 +144,27 @@ class TestGovernanceDecisionMatrix:
         engine: GovernanceEngine,
         payout: PayoutEntity,
         policy: AgentPolicy,
-        fake_postgres: MagicMock,
+        real_postgres: PostgresClient,
     ) -> None:
-        """Blocked domain → REJECT."""
-        fake_postgres.get_agent_policy = AsyncMock(return_value=policy)
+        await real_postgres.upsert_agent_policy(policy)
 
-        result = await engine.evaluate(payout, "test-agent", "https://evil.xyz/pay")
+        result = await engine.evaluate(payout, "smoke-agent", "https://evil.xyz/pay")
         assert result.decision == Decision.REJECTED
         assert result.reason_code == ReasonCode.DOMAIN_BLOCKED
 
     async def test_safe_browsing_threat_rejects(
         self,
-        engine: GovernanceEngine,
+        fake_redis: RedisClient,
+        real_postgres: PostgresClient,
         payout: PayoutEntity,
         policy: AgentPolicy,
-        fake_postgres: MagicMock,
     ) -> None:
-        """Unsafe URL → REJECT."""
-        fake_postgres.get_agent_policy = AsyncMock(return_value=policy)
+        await real_postgres.upsert_agent_policy(policy)
 
-        # Mock Safe Browsing to flag URL
-        mock_sb_result = MagicMock()
-        mock_sb_result.is_safe = False
-        mock_sb_result.threat_types = ["MALWARE"]
-        engine._safe_browsing.check_url = AsyncMock(return_value=mock_sb_result)
+        unsafe_sb = StubSafeBrowsingChecker(threat_map={"malware": ["MALWARE"]})
+        engine = GovernanceEngine(fake_redis, real_postgres, unsafe_sb)
 
-        result = await engine.evaluate(payout, "test-agent", "https://malware-site.com")
+        result = await engine.evaluate(payout, "smoke-agent", "https://malware-site.com")
         assert result.decision == Decision.REJECTED
         assert result.reason_code == ReasonCode.RISK_HIGH
 
@@ -181,16 +172,9 @@ class TestGovernanceDecisionMatrix:
         self,
         engine: GovernanceEngine,
         policy: AgentPolicy,
-        fake_postgres: MagicMock,
+        real_postgres: PostgresClient,
     ) -> None:
-        """Amount > approval threshold → HOLD."""
-        fake_postgres.get_agent_policy = AsyncMock(return_value=policy)
-
-        # Safe Browsing passes
-        mock_sb_result = MagicMock()
-        mock_sb_result.is_safe = True
-        mock_sb_result.threat_types = []
-        engine._safe_browsing.check_url = AsyncMock(return_value=mock_sb_result)
+        await real_postgres.upsert_agent_policy(policy)
 
         held_payout = PayoutEntity(
             id="pout_held",
@@ -201,7 +185,7 @@ class TestGovernanceDecisionMatrix:
             purpose="vendor_payment",
         )
 
-        result = await engine.evaluate(held_payout, "test-agent", "https://safe.com")
+        result = await engine.evaluate(held_payout, "smoke-agent", "https://safe.com")
         assert result.decision == Decision.HELD
         assert result.reason_code == ReasonCode.APPROVAL_REQUIRED
 
@@ -210,17 +194,11 @@ class TestGovernanceDecisionMatrix:
         engine: GovernanceEngine,
         payout: PayoutEntity,
         policy: AgentPolicy,
-        fake_postgres: MagicMock,
+        real_postgres: PostgresClient,
     ) -> None:
-        """All checks pass → APPROVE."""
-        fake_postgres.get_agent_policy = AsyncMock(return_value=policy)
+        await real_postgres.upsert_agent_policy(policy)
 
-        mock_sb_result = MagicMock()
-        mock_sb_result.is_safe = True
-        mock_sb_result.threat_types = []
-        engine._safe_browsing.check_url = AsyncMock(return_value=mock_sb_result)
-
-        result = await engine.evaluate(payout, "test-agent", "https://google.com")
+        result = await engine.evaluate(payout, "smoke-agent", "https://google.com")
         assert result.decision == Decision.APPROVED
         assert result.reason_code == ReasonCode.POLICY_OK
 
@@ -229,12 +207,11 @@ class TestGovernanceDecisionMatrix:
         engine: GovernanceEngine,
         payout: PayoutEntity,
         policy: AgentPolicy,
-        fake_postgres: MagicMock,
+        real_postgres: PostgresClient,
     ) -> None:
-        """Processing time should be recorded in result."""
-        fake_postgres.get_agent_policy = AsyncMock(return_value=policy)
+        await real_postgres.upsert_agent_policy(policy)
 
-        result = await engine.evaluate(payout, "test-agent")
+        result = await engine.evaluate(payout, "smoke-agent")
         assert result.processing_ms >= 0
 
 
@@ -248,32 +225,25 @@ class TestBudgetResetSmoke:
     """Smoke tests for budget enforcement with reset capability."""
 
     async def test_full_budget_lifecycle(self, fake_redis: RedisClient) -> None:
-        """Test complete lifecycle: spend → exceed → reset → spend again."""
         agent = "smoke-agent"
-        limit = 100000  # ₹1,000
+        limit = 100000
 
-        # 1. First spend should succeed
         ok = await fake_redis.check_budget_atomic(agent, 60000, limit)
         assert ok is True
 
-        # 2. Second spend should succeed (cumulative 90000 < 100000)
         ok = await fake_redis.check_budget_atomic(agent, 30000, limit)
         assert ok is True
 
-        # 3. Third spend should fail (90000 + 20000 > 100000)
         ok = await fake_redis.check_budget_atomic(agent, 20000, limit)
         assert ok is False
 
-        # 4. Verify total
         spent = await fake_redis.get_daily_spend(agent)
         assert spent == 90000
 
-        # 5. Reset
         await fake_redis.reset_daily_spend(agent)
         spent = await fake_redis.get_daily_spend(agent)
         assert spent == 0
 
-        # 6. Spend again after reset
         ok = await fake_redis.check_budget_atomic(agent, 50000, limit)
         assert ok is True
         spent = await fake_redis.get_daily_spend(agent)
@@ -289,15 +259,12 @@ class TestDemoImports:
     """Verify all demo imports work without errors."""
 
     def test_showcase_demo_importable(self) -> None:
-        """showcase_demo.py should be importable."""
-        # Add demo dir and src to path temporarily
         demo_dir = Path(__file__).resolve().parent.parent / "demo"
         src_dir = Path(__file__).resolve().parent.parent / "src"
         sys.path.insert(0, str(demo_dir))
         sys.path.insert(0, str(src_dir))
 
         try:
-            # This should not raise
             import showcase_demo  # type: ignore
 
             assert hasattr(showcase_demo, "run_showcase")

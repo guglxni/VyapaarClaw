@@ -1,12 +1,14 @@
 """Tests for Slack notifier — human-in-the-loop approval workflow.
 
 Tests message formatting, API calls, and notification logic.
+Uses httpx.MockTransport to exercise the real httpx client stack.
 """
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+import json
 
+import httpx
 import pytest
 
 from vyapaar_mcp.egress.slack_notifier import SlackNotifier, notify_slack
@@ -32,6 +34,20 @@ def make_result(
     )
 
 
+def _make_notifier(
+    handler,
+    bot_token: str = "xoxb-test-token",
+    channel_id: str = "C12345",
+) -> SlackNotifier:
+    """Create a real SlackNotifier wired to a MockTransport handler."""
+    notifier = SlackNotifier(bot_token=bot_token, channel_id=channel_id)
+    notifier._http = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="https://slack.com/api",
+    )
+    return notifier
+
+
 class TestSlackNotifierInit:
     def test_init(self) -> None:
         notifier = SlackNotifier(
@@ -55,7 +71,6 @@ class TestApprovalBlocks:
     def test_approval_blocks_with_no_vendor(self) -> None:
         result = make_result()
         blocks = SlackNotifier._build_approval_blocks(result, 750.0, None, None)
-        # Should use "Unknown Vendor" fallback
         found_vendor = False
         for block in blocks:
             if block.get("type") == "section" and "fields" in block:
@@ -86,7 +101,6 @@ class TestRejectionBlocks:
         )
         result.threat_types = ["MALWARE", "SOCIAL_ENGINEERING"]
         blocks = SlackNotifier._build_rejection_blocks(result, 100.0, None, "https://evil.com")
-        # Check that threats appear somewhere in blocks
         block_text = str(blocks)
         assert "MALWARE" in block_text
 
@@ -99,62 +113,84 @@ class TestNotifySlackFunction:
         await notify_slack(None, result)  # Should not raise
 
     async def test_notify_held_calls_request_approval(self) -> None:
-        notifier = MagicMock(spec=SlackNotifier)
-        notifier.request_approval = AsyncMock(return_value=True)
-        notifier.send_rejection_alert = AsyncMock(return_value=True)
+        requests_made: list[httpx.Request] = []
 
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests_made.append(request)
+            return httpx.Response(200, json={"ok": True, "ts": "123.456"})
+
+        notifier = _make_notifier(handler)
         result = make_result(decision=Decision.HELD)
         await notify_slack(notifier, result, vendor_name="Test")
 
-        notifier.request_approval.assert_awaited_once()
-        notifier.send_rejection_alert.assert_not_awaited()
+        assert len(requests_made) == 1
+        assert "/chat.postMessage" in str(requests_made[0].url)
+        payload = json.loads(requests_made[0].content)
+        assert "Approval Required" in payload["text"]
+        assert payload.get("blocks") is not None
+        await notifier.close()
 
     async def test_notify_rejected_risk_sends_alert(self) -> None:
-        notifier = MagicMock(spec=SlackNotifier)
-        notifier.request_approval = AsyncMock(return_value=True)
-        notifier.send_rejection_alert = AsyncMock(return_value=True)
+        requests_made: list[httpx.Request] = []
 
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests_made.append(request)
+            return httpx.Response(200, json={"ok": True, "ts": "123.456"})
+
+        notifier = _make_notifier(handler)
         result = make_result(
             decision=Decision.REJECTED,
             reason_code=ReasonCode.RISK_HIGH,
         )
         await notify_slack(notifier, result)
 
-        notifier.send_rejection_alert.assert_awaited_once()
-        notifier.request_approval.assert_not_awaited()
+        assert len(requests_made) == 1
+        assert "/chat.postMessage" in str(requests_made[0].url)
+        payload = json.loads(requests_made[0].content)
+        assert "Rejected" in payload["text"]
+        await notifier.close()
 
     async def test_notify_approved_no_notification(self) -> None:
-        notifier = MagicMock(spec=SlackNotifier)
-        notifier.request_approval = AsyncMock()
-        notifier.send_rejection_alert = AsyncMock()
+        requests_made: list[httpx.Request] = []
 
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests_made.append(request)
+            return httpx.Response(200, json={"ok": True})
+
+        notifier = _make_notifier(handler)
         result = make_result(
             decision=Decision.APPROVED,
             reason_code=ReasonCode.POLICY_OK,
         )
         await notify_slack(notifier, result)
 
-        notifier.request_approval.assert_not_awaited()
-        notifier.send_rejection_alert.assert_not_awaited()
+        assert len(requests_made) == 0
+        await notifier.close()
 
     async def test_notify_rejected_txn_limit_sends_alert(self) -> None:
-        notifier = MagicMock(spec=SlackNotifier)
-        notifier.request_approval = AsyncMock()
-        notifier.send_rejection_alert = AsyncMock(return_value=True)
+        requests_made: list[httpx.Request] = []
 
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests_made.append(request)
+            return httpx.Response(200, json={"ok": True, "ts": "123.456"})
+
+        notifier = _make_notifier(handler)
         result = make_result(
             decision=Decision.REJECTED,
             reason_code=ReasonCode.LIMIT_EXCEEDED,
         )
         await notify_slack(notifier, result)
 
-        notifier.send_rejection_alert.assert_awaited_once()
+        assert len(requests_made) == 1
+        await notifier.close()
 
     async def test_slack_error_does_not_propagate(self) -> None:
         """Slack failures should be non-fatal."""
-        notifier = MagicMock(spec=SlackNotifier)
-        notifier.request_approval = AsyncMock(side_effect=RuntimeError("Slack down"))
 
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("Slack down")
+
+        notifier = _make_notifier(handler)
         result = make_result(decision=Decision.HELD)
-        # Should not raise
-        await notify_slack(notifier, result)
+        await notify_slack(notifier, result)  # Should not raise
+        await notifier.close()
