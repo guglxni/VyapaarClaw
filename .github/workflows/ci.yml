@@ -78,6 +78,17 @@ jobs:
       - name: Set up Python
         run: uv python install 3.12
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Build Razorpay Go MCP server
+        run: |
+          git clone --depth 1 https://github.com/razorpay/razorpay-mcp-server.git vendor/razorpay-mcp-server
+          cd vendor/razorpay-mcp-server
+          go build -o ../../bin/razorpay-mcp-server ./cmd/razorpay-mcp-server
+
       - name: Install dependencies
         run: uv sync --frozen --extra dev
 
