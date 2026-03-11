@@ -25,14 +25,13 @@ License:   MIT (Copyright (c) 2025 Razorpay)
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
-import shutil
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncGenerator
+from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -40,9 +39,7 @@ from mcp.client.stdio import stdio_client
 logger = logging.getLogger(__name__)
 
 # Default binary location (built from vendor source)
-DEFAULT_BINARY_PATH = str(
-    Path(__file__).resolve().parents[3] / "bin" / "razorpay-mcp-server"
-)
+DEFAULT_BINARY_PATH = str(Path(__file__).resolve().parents[3] / "bin" / "razorpay-mcp-server")
 
 
 class RazorpayBridge:
@@ -94,7 +91,8 @@ class RazorpayBridge:
             command=self._binary_path,
             args=[
                 "stdio",
-                "--log-file", "/dev/null",
+                "--log-file",
+                "/dev/null",
             ],
             env={
                 **os.environ,
@@ -112,24 +110,24 @@ class RazorpayBridge:
         """
         server_params = self._get_server_params()
 
-        async with stdio_client(server_params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                logger.debug("MCP session initialized with Go binary")
+        async with (
+            stdio_client(server_params) as (read, write),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            logger.debug("MCP session initialized with Go binary")
 
-                # Cache available tools on first connect
-                if not self._available_tools:
-                    tools_response = await session.list_tools()
-                    self._available_tools = [
-                        t.name for t in tools_response.tools
-                    ]
-                    logger.info(
-                        "Go MCP server offers %d tools: %s",
-                        len(self._available_tools),
-                        ", ".join(self._available_tools),
-                    )
+            # Cache available tools on first connect
+            if not self._available_tools:
+                tools_response = await session.list_tools()
+                self._available_tools = [t.name for t in tools_response.tools]
+                logger.info(
+                    "Go MCP server offers %d tools: %s",
+                    len(self._available_tools),
+                    ", ".join(self._available_tools),
+                )
 
-                yield session
+            yield session
 
     async def _call_tool(
         self,
@@ -143,9 +141,7 @@ class RazorpayBridge:
         For high-frequency usage, consider a persistent connection.
         """
         async with self._connect() as session:
-            result = await session.call_tool(
-                tool_name, arguments
-            )
+            result = await session.call_tool(tool_name, arguments)
 
             # Parse the MCP response
             if result.isError:
@@ -158,9 +154,7 @@ class RazorpayBridge:
                     tool_name,
                     error_text,
                 )
-                raise RuntimeError(
-                    f"Razorpay MCP tool error: {error_text}"
-                )
+                raise RuntimeError(f"Razorpay MCP tool error: {error_text}")
 
             # Extract text content and parse as JSON
             for content in result.content:
@@ -197,16 +191,11 @@ class RazorpayBridge:
         }
         # Note: status filtering done client-side since the Go
         # MCP tool doesn't expose a status parameter directly
-        result = await self._call_tool(
-            "fetch_all_payouts", args
-        )
+        result = await self._call_tool("fetch_all_payouts", args)
 
         # Client-side status filter (if needed)
         if status and "items" in result:
-            result["items"] = [
-                p for p in result["items"]
-                if p.get("status") == status
-            ]
+            result["items"] = [p for p in result["items"] if p.get("status") == status]
             result["count"] = len(result["items"])
 
         return result
@@ -293,9 +282,7 @@ class RazorpayBridge:
         if customer:
             args["customer"] = customer
         args.update(kwargs)
-        return await self._call_tool(
-            "create_payment_link", args
-        )
+        return await self._call_tool("create_payment_link", args)
 
     async def fetch_all_payment_links(
         self,
@@ -330,9 +317,7 @@ class RazorpayBridge:
             "currency": currency,
         }
         args.update(kwargs)
-        return await self._call_tool(
-            "create_order", args
-        )
+        return await self._call_tool("create_order", args)
 
     async def fetch_all_orders(
         self,
@@ -367,9 +352,7 @@ class RazorpayBridge:
             "amount": amount,
         }
         args.update(kwargs)
-        return await self._call_tool(
-            "create_refund", args
-        )
+        return await self._call_tool("create_refund", args)
 
     async def fetch_all_refunds(
         self,

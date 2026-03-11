@@ -59,18 +59,14 @@ class PayoutPoller:
         self._bridge = bridge
         self._account_number = account_number
         self._redis = redis
-        self._poll_interval = max(
-            MIN_POLL_INTERVAL, min(poll_interval, MAX_POLL_INTERVAL)
-        )
+        self._poll_interval = max(MIN_POLL_INTERVAL, min(poll_interval, MAX_POLL_INTERVAL))
         self._running = False
         self._error_count = 0
         self._total_processed = 0
         self._last_poll_at: float | None = None
 
         # Mask account number in logs
-        masked = account_number[-4:].rjust(
-            len(account_number), "*"
-        )
+        masked = account_number[-4:].rjust(len(account_number), "*")
         logger.info(
             "PayoutPoller initialized (interval=%ds, account=%s)",
             self._poll_interval,
@@ -118,9 +114,7 @@ class PayoutPoller:
         skip = 0
 
         while True:
-            batch = await self.fetch_queued_payouts(
-                count=MAX_PAYOUTS_PER_PAGE, skip=skip
-            )
+            batch = await self.fetch_queued_payouts(count=MAX_PAYOUTS_PER_PAGE, skip=skip)
             if not batch:
                 break
             all_payouts.extend(batch)
@@ -130,9 +124,7 @@ class PayoutPoller:
 
         return all_payouts
 
-    def convert_to_payout_entity(
-        self, raw_payout: dict[str, Any]
-    ) -> PayoutEntity:
+    def convert_to_payout_entity(self, raw_payout: dict[str, Any]) -> PayoutEntity:
         """Convert a raw Razorpay API payout response to PayoutEntity.
 
         The API response format matches what the Go MCP server's
@@ -195,9 +187,7 @@ class PayoutPoller:
             idempotency_key = f"poll:payout.queued:{payout_id}"
 
             # Check if already processed (same Redis layer as webhooks)
-            is_new = await self._redis.check_idempotency(
-                idempotency_key
-            )
+            is_new = await self._redis.check_idempotency(idempotency_key)
             if not is_new:
                 logger.debug(
                     "Skipping already-processed payout: %s",
@@ -237,8 +227,7 @@ class PayoutPoller:
         """
         self._running = True
         logger.info(
-            "🔄 PayoutPoller starting continuous poll "
-            "(interval=%ds)",
+            "🔄 PayoutPoller starting continuous poll (interval=%ds)",
             self._poll_interval,
         )
 
@@ -249,9 +238,7 @@ class PayoutPoller:
                 if on_payout and new_payouts:
                     for payout, agent_id, vendor_url in new_payouts:
                         try:
-                            await on_payout(
-                                payout, agent_id, vendor_url
-                            )
+                            await on_payout(payout, agent_id, vendor_url)
                         except Exception as e:
                             logger.error(
                                 "Payout callback error for %s: %s",

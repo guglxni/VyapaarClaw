@@ -80,9 +80,7 @@ return 1
         today = date.today().strftime("%Y%m%d")
         return f"vyapaar:budget:{agent_id}:{today}"
 
-    async def check_budget_atomic(
-        self, agent_id: str, amount: int, daily_limit: int
-    ) -> bool:
+    async def check_budget_atomic(self, agent_id: str, amount: int, daily_limit: int) -> bool:
         """Atomically check and update budget using a Lua script.
 
         The entire check-and-increment is a single atomic Redis op.
@@ -95,23 +93,27 @@ return 1
 
         result = await self.client.eval(
             self._BUDGET_LUA,
-            1,       # number of KEYS
-            key,     # KEYS[1]
-            str(amount),       # ARGV[1]
+            1,  # number of KEYS
+            key,  # KEYS[1]
+            str(amount),  # ARGV[1]
             str(daily_limit),  # ARGV[2]
-            str(90000),        # ARGV[3] — TTL 25 hours
+            str(90000),  # ARGV[3] — TTL 25 hours
         )
 
         if result == 1:
             logger.info(
                 "Budget OK for %s: +%d paise (limit %d)",
-                agent_id, amount, daily_limit,
+                agent_id,
+                amount,
+                daily_limit,
             )
             return True
         else:
             logger.warning(
                 "Budget exceeded for %s: +%d would exceed limit %d",
-                agent_id, amount, daily_limit,
+                agent_id,
+                amount,
+                daily_limit,
             )
             return False
 
@@ -212,7 +214,10 @@ return {1, current + 1, window}
         if not allowed:
             logger.warning(
                 "Rate limit exceeded for %s: %d/%d in %ds window",
-                agent_id, current_count, max_requests, window_seconds,
+                agent_id,
+                current_count,
+                max_requests,
+                window_seconds,
             )
         return allowed, current_count
 
@@ -251,9 +256,7 @@ return {1, current + 1, window}
             return json.loads(cached)  # type: ignore[no-any-return]
         return None
 
-    async def cache_reputation(
-        self, url: str, result: dict[str, Any], ttl: int = 300
-    ) -> None:
+    async def cache_reputation(self, url: str, result: dict[str, Any], ttl: int = 300) -> None:
         """Cache Safe Browsing result (default 5 min TTL)."""
         key = self._reputation_key(url)
         await self.client.setex(key, ttl, json.dumps(result))
@@ -266,9 +269,7 @@ return {1, current + 1, window}
         """Generate budget key for a specific date."""
         return f"vyapaar:budget:{agent_id}:{dt.strftime('%Y%m%d')}"
 
-    async def get_historical_spend(
-        self, agent_id: str, days: int = 30
-    ) -> list[dict[str, Any]]:
+    async def get_historical_spend(self, agent_id: str, days: int = 30) -> list[dict[str, Any]]:
         """Get daily spend totals for an agent over the past N days.
 
         Returns a list of {date, spend} dicts ordered oldest-first.
@@ -283,10 +284,12 @@ return {1, current + 1, window}
             dt = today - timedelta(days=offset)
             key = self._budget_key_for_date(agent_id, dt)
             value = await self.client.get(key)
-            results.append({
-                "date": dt.isoformat(),
-                "spend": int(value) if value else 0,
-            })
+            results.append(
+                {
+                    "date": dt.isoformat(),
+                    "spend": int(value) if value else 0,
+                }
+            )
 
         return results
 

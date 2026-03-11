@@ -20,8 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
@@ -56,11 +55,11 @@ class AnomalyScore:
         training_samples: int,
         detail: str = "",
     ) -> None:
-        self.risk_score = risk_score        # 0.0 (normal) to 1.0 (anomalous)
-        self.raw_score = raw_score           # Raw IsolationForest score
-        self.is_anomalous = is_anomalous     # True if risk_score > threshold
-        self.features = features             # Feature vector used
-        self.model_trained = model_trained   # Whether model had enough data
+        self.risk_score = risk_score  # 0.0 (normal) to 1.0 (anomalous)
+        self.raw_score = raw_score  # Raw IsolationForest score
+        self.is_anomalous = is_anomalous  # True if risk_score > threshold
+        self.features = features  # Feature vector used
+        self.model_trained = model_trained  # Whether model had enough data
         self.training_samples = training_samples
         self.detail = detail
 
@@ -119,6 +118,7 @@ class TransactionAnomalyScorer:
         """Lazy-load sklearn to avoid import overhead at startup."""
         if self._IsolationForest is None:
             from sklearn.ensemble import IsolationForest
+
             self._IsolationForest = IsolationForest
         return self._IsolationForest
 
@@ -142,7 +142,7 @@ class TransactionAnomalyScorer:
         Returns:
             AnomalyScore with risk assessment.
         """
-        ts = timestamp or datetime.now(timezone.utc)
+        ts = timestamp or datetime.now(UTC)
         features = self._extract_features(amount, ts)
 
         # Get historical data for this agent BEFORE recording current transaction
@@ -160,7 +160,7 @@ class TransactionAnomalyScorer:
                 model_trained=False,
                 training_samples=len(history),
                 detail=f"Insufficient data ({len(history)}/{_MIN_TRAINING_SAMPLES} samples). "
-                       "Using neutral score.",
+                "Using neutral score.",
             )
 
         # Compute z-score feature using history
@@ -226,7 +226,9 @@ class TransactionAnomalyScorer:
             },
             "time_stats": {
                 "most_active_hour": int(np.argmax(np.bincount(hours, minlength=24))),
-                "hour_distribution": {str(h): int(c) for h, c in enumerate(np.bincount(hours, minlength=24)) if c > 0},
+                "hour_distribution": {
+                    str(h): int(c) for h, c in enumerate(np.bincount(hours, minlength=24)) if c > 0
+                },
             },
         }
 
@@ -254,12 +256,14 @@ class TransactionAnomalyScorer:
         rows: list[list[float]] = []
         for h in history:
             zscore = (h["amount_log"] - mean_amt) / max(std_amt, 0.001)
-            rows.append([
-                h["amount_log"],
-                h["hour_of_day"],
-                h["day_of_week"],
-                zscore,
-            ])
+            rows.append(
+                [
+                    h["amount_log"],
+                    h["hour_of_day"],
+                    h["day_of_week"],
+                    zscore,
+                ]
+            )
         return np.array(rows, dtype=np.float64)
 
     # ----------------------------------------------------------------
@@ -290,12 +294,16 @@ class TransactionAnomalyScorer:
         model.fit(history_matrix)
 
         # Score the current transaction
-        feature_vector = np.array([[
-            features["amount_log"],
-            features["hour_of_day"],
-            features["day_of_week"],
-            features["amount_zscore"],
-        ]])
+        feature_vector = np.array(
+            [
+                [
+                    features["amount_log"],
+                    features["hour_of_day"],
+                    features["day_of_week"],
+                    features["amount_zscore"],
+                ]
+            ]
+        )
 
         # decision_function: positive = inlier, negative = outlier, centred at ~0
         raw_score = float(model.decision_function(feature_vector)[0])
@@ -314,13 +322,18 @@ class TransactionAnomalyScorer:
                 contributing.append(f"unusual amount (z={features['amount_zscore']:.1f})")
             if features["hour_of_day"] < 6 or features["hour_of_day"] > 22:
                 contributing.append(f"unusual hour ({int(features['hour_of_day'])}:00)")
-            detail = f"Anomaly detected: {', '.join(contributing) if contributing else 'multi-feature deviation'}"
+            factors = ", ".join(contributing) if contributing else "multi-feature deviation"
+            detail = f"Anomaly detected: {factors}"
         else:
             detail = "Transaction appears normal"
 
         logger.info(
             "Anomaly score for agent %s: risk=%.3f raw=%.3f anomalous=%s (%d training samples)",
-            agent_id, risk_score, raw_score, is_anomalous, len(history_matrix),
+            agent_id,
+            risk_score,
+            raw_score,
+            is_anomalous,
+            len(history_matrix),
         )
 
         return AnomalyScore(
@@ -349,11 +362,13 @@ class TransactionAnomalyScorer:
             return
 
         key = f"anomaly:history:{agent_id}"
-        entry = json.dumps({
-            **features,
-            "amount_paise": amount,
-            "timestamp": ts.isoformat(),
-        })
+        entry = json.dumps(
+            {
+                **features,
+                "amount_paise": amount,
+                "timestamp": ts.isoformat(),
+            }
+        )
 
         try:
             # LPUSH + LTRIM to maintain bounded list
@@ -375,11 +390,13 @@ class TransactionAnomalyScorer:
             for raw in raw_entries:
                 try:
                     entry = json.loads(raw)
-                    entries.append({
-                        "amount_log": float(entry.get("amount_log", 0)),
-                        "hour_of_day": float(entry.get("hour_of_day", 12)),
-                        "day_of_week": float(entry.get("day_of_week", 0)),
-                    })
+                    entries.append(
+                        {
+                            "amount_log": float(entry.get("amount_log", 0)),
+                            "hour_of_day": float(entry.get("hour_of_day", 12)),
+                            "day_of_week": float(entry.get("day_of_week", 0)),
+                        }
+                    )
                 except (json.JSONDecodeError, KeyError, TypeError):
                     continue
             return entries

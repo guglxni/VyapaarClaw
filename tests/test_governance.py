@@ -109,7 +109,8 @@ class TestGovernanceEngine:
         """Vendor on blocklist should be REJECTED (SPEC §8 row 7)."""
         engine = GovernanceEngine(fake_redis, mock_postgres, safe_browsing_safe)
         result = await engine.evaluate(
-            make_payout(amount=10000), "test-agent-001",
+            make_payout(amount=10000),
+            "test-agent-001",
             vendor_url="https://evil.com/pay",
         )
 
@@ -122,7 +123,8 @@ class TestGovernanceEngine:
         """URL flagged by Safe Browsing should be REJECTED (SPEC §8 row 6)."""
         engine = GovernanceEngine(fake_redis, mock_postgres, safe_browsing_unsafe)
         result = await engine.evaluate(
-            make_payout(amount=10000), "test-agent-001",
+            make_payout(amount=10000),
+            "test-agent-001",
             vendor_url="https://legit-looking.com",
         )
 
@@ -137,7 +139,8 @@ class TestGovernanceEngine:
         engine = GovernanceEngine(fake_redis, mock_postgres, safe_browsing_safe)
         # Policy has require_approval_above = 50000 (₹500)
         result = await engine.evaluate(
-            make_payout(amount=75000), "test-agent-001",
+            make_payout(amount=75000),
+            "test-agent-001",
             vendor_url="https://safe-vendor.com",
         )
 
@@ -150,7 +153,8 @@ class TestGovernanceEngine:
         """All checks passing should APPROVE (SPEC §8 row 9)."""
         engine = GovernanceEngine(fake_redis, mock_postgres, safe_browsing_safe)
         result = await engine.evaluate(
-            make_payout(amount=10000), "test-agent-001",
+            make_payout(amount=10000),
+            "test-agent-001",
             vendor_url="https://safe-vendor.com",
         )
 
@@ -163,7 +167,8 @@ class TestGovernanceEngine:
         """Processing time should be tracked in milliseconds."""
         engine = GovernanceEngine(fake_redis, mock_postgres, safe_browsing_safe)
         result = await engine.evaluate(
-            make_payout(amount=10000), "test-agent-001",
+            make_payout(amount=10000),
+            "test-agent-001",
         )
 
         assert result.processing_ms is not None

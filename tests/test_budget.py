@@ -63,10 +63,7 @@ class TestAtomicBudget:
 
         # Simulate 20 concurrent ₹100 (10000 paise) requests
         results = await asyncio.gather(
-            *[
-                fake_redis.check_budget_atomic("agent-race", 10000, daily_limit)
-                for _ in range(20)
-            ]
+            *[fake_redis.check_budget_atomic("agent-race", 10000, daily_limit) for _ in range(20)]
         )
 
         approved = sum(1 for r in results if r is True)
@@ -129,7 +126,9 @@ class TestRateLimit:
     async def test_within_limit(self, fake_redis: RedisClient) -> None:
         """Requests within limit should be allowed."""
         allowed, count = await fake_redis.check_rate_limit(
-            "agent-rl", max_requests=5, window_seconds=60,
+            "agent-rl",
+            max_requests=5,
+            window_seconds=60,
         )
         assert allowed is True
         assert count == 1
@@ -140,7 +139,9 @@ class TestRateLimit:
             await fake_redis.check_rate_limit("agent-rl2", max_requests=5, window_seconds=60)
 
         allowed, count = await fake_redis.check_rate_limit(
-            "agent-rl2", max_requests=5, window_seconds=60,
+            "agent-rl2",
+            max_requests=5,
+            window_seconds=60,
         )
         assert allowed is False
         assert count == 5

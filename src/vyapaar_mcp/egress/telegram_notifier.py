@@ -27,7 +27,7 @@ from typing import Any
 
 import httpx
 
-from vyapaar_mcp.models import Decision, GovernanceResult, ReasonCode
+from vyapaar_mcp.models import GovernanceResult, ReasonCode
 
 logger = logging.getLogger(__name__)
 
@@ -85,17 +85,21 @@ class TelegramNotifier:
                 [
                     {
                         "text": "✅ Approve",
-                        "callback_data": json.dumps({
-                            "a": "approve_payout",
-                            "p": result.payout_id,
-                        }),
+                        "callback_data": json.dumps(
+                            {
+                                "a": "approve_payout",
+                                "p": result.payout_id,
+                            }
+                        ),
                     },
                     {
                         "text": "❌ Reject",
-                        "callback_data": json.dumps({
-                            "a": "reject_payout",
-                            "p": result.payout_id,
-                        }),
+                        "callback_data": json.dumps(
+                            {
+                                "a": "reject_payout",
+                                "p": result.payout_id,
+                            }
+                        ),
                     },
                 ]
             ]
@@ -128,9 +132,7 @@ class TelegramNotifier:
 
         threat_line = ""
         if result.threat_types:
-            threat_line = (
-                f"\n<b>Threats:</b> {', '.join(result.threat_types)}"
-            )
+            threat_line = f"\n<b>Threats:</b> {', '.join(result.threat_types)}"
 
         text = (
             f"<b>{emoji} Payout Rejected — {result.reason_code.value}</b>\n\n"
@@ -245,8 +247,4 @@ class TelegramNotifier:
 
 def _escape_html(text: str) -> str:
     """Escape HTML special characters for Telegram's HTML parse mode."""
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

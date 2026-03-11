@@ -62,8 +62,7 @@ class GLEIFResponse(BaseModel):
     def is_verified(self) -> bool:
         """At least one entity found with ACTIVE status and ISSUED registration."""
         return any(
-            e.entity_status == "ACTIVE" and e.registration_status == "ISSUED"
-            for e in self.entities
+            e.entity_status == "ACTIVE" and e.registration_status == "ISSUED" for e in self.entities
         )
 
     @property
@@ -155,7 +154,9 @@ class GLEIFChecker:
             # Cache the result
             if self._redis and self._redis._client:
                 try:
-                    await self._redis._client.set(cache_key, json.dumps(response.to_dict()), ex=_CACHE_TTL)
+                    await self._redis._client.set(
+                        cache_key, json.dumps(response.to_dict()), ex=_CACHE_TTL
+                    )
                 except Exception as e:
                     logger.warning("GLEIF cache write error: %s", e)
 
@@ -170,7 +171,12 @@ class GLEIFChecker:
             return GLEIFResponse(query=name, error="GLEIF API timeout")
 
         except httpx.HTTPStatusError as e:
-            logger.error("GLEIF API error %d for query '%s': %s", e.response.status_code, name, e.response.text)
+            logger.error(
+                "GLEIF API error %d for query '%s': %s",
+                e.response.status_code,
+                name,
+                e.response.text,
+            )
             return GLEIFResponse(query=name, error=f"GLEIF API HTTP {e.response.status_code}")
 
         except Exception as e:
@@ -210,7 +216,9 @@ class GLEIFChecker:
 
             if self._redis and self._redis._client:
                 try:
-                    await self._redis._client.set(cache_key, json.dumps(response.to_dict()), ex=_CACHE_TTL)
+                    await self._redis._client.set(
+                        cache_key, json.dumps(response.to_dict()), ex=_CACHE_TTL
+                    )
                 except Exception as e:
                     logger.warning("GLEIF cache write error: %s", e)
 
@@ -249,9 +257,10 @@ class GLEIFChecker:
 
         logger.info(
             "GLEIF search '%s' → %d entities found (verified=%s)",
-            name, len(entities), any(
-                e.entity_status == "ACTIVE" and e.registration_status == "ISSUED"
-                for e in entities
+            name,
+            len(entities),
+            any(
+                e.entity_status == "ACTIVE" and e.registration_status == "ISSUED" for e in entities
             ),
         )
 
@@ -299,16 +308,24 @@ class GLEIFChecker:
                 legal_name_obj = entity_data.get("legalName", {})
                 hq_address = entity_data.get("headquartersAddress", {})
 
-                entities.append(GLEIFEntity(
-                    lei=attrs.get("lei", record.get("id", "")),
-                    legal_name=legal_name_obj.get("name", "") if isinstance(legal_name_obj, dict) else str(legal_name_obj),
-                    jurisdiction=entity_data.get("jurisdiction", ""),
-                    category=entity_data.get("category", ""),
-                    entity_status=entity_data.get("status", ""),
-                    registration_status=registration.get("status", ""),
-                    headquarters_country=hq_address.get("country") if isinstance(hq_address, dict) else None,
-                    headquarters_city=hq_address.get("city") if isinstance(hq_address, dict) else None,
-                ))
+                entities.append(
+                    GLEIFEntity(
+                        lei=attrs.get("lei", record.get("id", "")),
+                        legal_name=legal_name_obj.get("name", "")
+                        if isinstance(legal_name_obj, dict)
+                        else str(legal_name_obj),
+                        jurisdiction=entity_data.get("jurisdiction", ""),
+                        category=entity_data.get("category", ""),
+                        entity_status=entity_data.get("status", ""),
+                        registration_status=registration.get("status", ""),
+                        headquarters_country=hq_address.get("country")
+                        if isinstance(hq_address, dict)
+                        else None,
+                        headquarters_city=hq_address.get("city")
+                        if isinstance(hq_address, dict)
+                        else None,
+                    )
+                )
             except Exception as e:
                 logger.warning("Failed to parse GLEIF record: %s", e)
                 continue
@@ -320,9 +337,7 @@ class GLEIFChecker:
         """Deserialize a cached GLEIFResponse from JSON."""
         try:
             data = json.loads(cached_json)
-            entities = [
-                GLEIFEntity(**e) for e in data.get("all_entities", [])
-            ]
+            entities = [GLEIFEntity(**e) for e in data.get("all_entities", [])]
             return GLEIFResponse(
                 query=query,
                 entities=entities,

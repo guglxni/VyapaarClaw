@@ -28,7 +28,6 @@ from vyapaar_mcp.models import (
 )
 from vyapaar_mcp.resilience import CircuitBreaker, CircuitOpenError, CircuitState
 
-
 # ================================================================
 # Circuit Breaker Tests
 # ================================================================
@@ -235,9 +234,7 @@ class TestRateLimiting:
     async def test_reaches_limit_still_allowed(self, fake_redis: RedisClient) -> None:
         """Request at the exact limit should still be allowed."""
         for _ in range(4):
-            await fake_redis.check_rate_limit(
-                "agent-a", max_requests=5, window_seconds=60
-            )
+            await fake_redis.check_rate_limit("agent-a", max_requests=5, window_seconds=60)
 
         allowed, count = await fake_redis.check_rate_limit(
             "agent-a", max_requests=5, window_seconds=60
@@ -248,9 +245,7 @@ class TestRateLimiting:
     async def test_exceeds_limit_blocked(self, fake_redis: RedisClient) -> None:
         """Requests beyond the limit should be blocked."""
         for _ in range(5):
-            await fake_redis.check_rate_limit(
-                "agent-a", max_requests=5, window_seconds=60
-            )
+            await fake_redis.check_rate_limit("agent-a", max_requests=5, window_seconds=60)
 
         allowed, count = await fake_redis.check_rate_limit(
             "agent-a", max_requests=5, window_seconds=60
@@ -261,9 +256,7 @@ class TestRateLimiting:
     async def test_different_agents_independent(self, fake_redis: RedisClient) -> None:
         """Rate limits should be independent per agent."""
         for _ in range(5):
-            await fake_redis.check_rate_limit(
-                "agent-a", max_requests=5, window_seconds=60
-            )
+            await fake_redis.check_rate_limit("agent-a", max_requests=5, window_seconds=60)
 
         # Agent B should still be allowed
         allowed, count = await fake_redis.check_rate_limit(
@@ -290,17 +283,23 @@ class TestGovernanceRateLimit:
         safe_browsing.check_url = AsyncMock(return_value=SafeBrowsingResponse())
 
         engine = GovernanceEngine(
-            fake_redis, mock_postgres, safe_browsing,
-            rate_limit_max=3, rate_limit_window=60,
+            fake_redis,
+            mock_postgres,
+            safe_browsing,
+            rate_limit_max=3,
+            rate_limit_window=60,
         )
 
-        payout = PayoutEntity(id="pout_rl_1", amount=1000, status="queued")
+        PayoutEntity(id="pout_rl_1", amount=1000, status="queued")
 
         # Use up the rate limit
         for i in range(3):
             p = PayoutEntity(id=f"pout_rl_{i}", amount=1000, status="queued")
             result = await engine.evaluate(p, "test-agent-001")
-            assert result.decision != Decision.REJECTED or result.reason_code != ReasonCode.RATE_LIMITED
+            assert (
+                result.decision != Decision.REJECTED
+                or result.reason_code != ReasonCode.RATE_LIMITED
+            )
 
         # Next one should be rate limited
         result = await engine.evaluate(
@@ -319,8 +318,11 @@ class TestGovernanceRateLimit:
         safe_browsing.check_url = AsyncMock(return_value=SafeBrowsingResponse())
 
         engine = GovernanceEngine(
-            fake_redis, mock_postgres, safe_browsing,
-            rate_limit_max=0, rate_limit_window=60,
+            fake_redis,
+            mock_postgres,
+            safe_browsing,
+            rate_limit_max=0,
+            rate_limit_window=60,
         )
 
         payout = PayoutEntity(id="pout_nrl", amount=1000, status="queued")
@@ -339,6 +341,7 @@ class TestSlackInteractiveButtons:
     def _make_held_result(self, payout_id: str = "pout_test_btn_001", amount: int = 50000) -> Any:
         """Create a HELD GovernanceResult for testing."""
         from vyapaar_mcp.models import GovernanceResult
+
         return GovernanceResult(
             payout_id=payout_id,
             agent_id="agent-x",
@@ -417,7 +420,7 @@ class TestSlackInteractiveButtons:
             mock_response.json.return_value = {"ok": True}
             mock_post.return_value = mock_response
 
-            result = await notifier.update_approval_message(
+            await notifier.update_approval_message(
                 channel="C1234567890",
                 message_ts="1234567890.123456",
                 payout_id="pout_update_001",

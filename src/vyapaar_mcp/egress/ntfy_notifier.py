@@ -16,7 +16,6 @@ Key design choices:
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -261,8 +260,10 @@ async def notify_with_fallback(
 
     sent = False
     alert_reasons = {
-        ReasonCode.RISK_HIGH, ReasonCode.DOMAIN_BLOCKED,
-        ReasonCode.LIMIT_EXCEEDED, ReasonCode.NO_POLICY,
+        ReasonCode.RISK_HIGH,
+        ReasonCode.DOMAIN_BLOCKED,
+        ReasonCode.LIMIT_EXCEEDED,
+        ReasonCode.NO_POLICY,
     }
 
     # --- Try Slack ---
@@ -270,12 +271,16 @@ async def notify_with_fallback(
         try:
             if result.decision == Decision.HELD:
                 sent = await slack_notifier.request_approval(
-                    result, vendor_name=vendor_name, vendor_url=vendor_url,
+                    result,
+                    vendor_name=vendor_name,
+                    vendor_url=vendor_url,
                 )
             elif result.decision == Decision.REJECTED:
                 if result.reason_code in alert_reasons:
                     sent = await slack_notifier.send_rejection_alert(
-                        result, vendor_name=vendor_name, vendor_url=vendor_url,
+                        result,
+                        vendor_name=vendor_name,
+                        vendor_url=vendor_url,
                     )
                 else:
                     sent = True
@@ -290,12 +295,16 @@ async def notify_with_fallback(
         try:
             if result.decision == Decision.HELD:
                 sent = await telegram_notifier.request_approval(
-                    result, vendor_name=vendor_name, vendor_url=vendor_url,
+                    result,
+                    vendor_name=vendor_name,
+                    vendor_url=vendor_url,
                 )
             elif result.decision == Decision.REJECTED:
                 if result.reason_code in alert_reasons:
                     sent = await telegram_notifier.send_rejection_alert(
-                        result, vendor_name=vendor_name, vendor_url=vendor_url,
+                        result,
+                        vendor_name=vendor_name,
+                        vendor_url=vendor_url,
                     )
                 else:
                     sent = True
@@ -309,7 +318,9 @@ async def notify_with_fallback(
     if not sent and ntfy_notifier is not None:
         try:
             ntfy_sent = await ntfy_notifier.send_governance_notification(
-                result, vendor_name=vendor_name, vendor_url=vendor_url,
+                result,
+                vendor_name=vendor_name,
+                vendor_url=vendor_url,
             )
             if ntfy_sent:
                 sent = True
@@ -319,9 +330,7 @@ async def notify_with_fallback(
 
     if not sent:
         has_any = (
-            slack_notifier is not None
-            or telegram_notifier is not None
-            or ntfy_notifier is not None
+            slack_notifier is not None or telegram_notifier is not None or ntfy_notifier is not None
         )
         if has_any:
             logger.warning(

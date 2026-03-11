@@ -33,7 +33,6 @@ import httpx
 
 from vyapaar_mcp.models import Decision, GovernanceResult, ReasonCode
 from vyapaar_mcp.observability import metrics
-from vyapaar_mcp.security import mask_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -50,16 +49,16 @@ def verify_slack_signature(
     signing_secret: str,
 ) -> bool:
     """Verify Slack request signature to prevent callback spoofing.
-    
+
     Per Slack security best practices:
     https://api.slack.com/authentication/verifying-requests-from-slack
-    
+
     Args:
         payload: Raw request body
         timestamp: X-Slack-Request-Timestamp header
         signature: X-Slack-Signature header
         signing_secret: Slack app signing secret
-        
+
     Returns:
         True if signature is valid, False otherwise
     """
@@ -73,25 +72,25 @@ def verify_slack_signature(
     except ValueError:
         logger.warning("Slack signature verification failed: invalid timestamp")
         return False
-    
+
     # Build the base string
     base_string = f"{SLACK_SIGNATURE_VERSION}:{timestamp}:{payload}"
-    
+
     # Compute signature
     expected_signature = hmac.new(
         key=signing_secret.encode("utf-8"),
         msg=base_string.encode("utf-8"),
         digestmod=hashlib.sha256,
     ).hexdigest()
-    
+
     # Compare signatures (timing-safe)
     is_valid = hmac.compare_digest(f"{SLACK_SIGNATURE_VERSION}={expected_signature}", signature)
-    
+
     if not is_valid:
         logger.warning("Slack signature verification FAILED")
     else:
         logger.debug("Slack signature verified OK")
-    
+
     return is_valid
 
 
@@ -137,9 +136,7 @@ class SlackNotifier:
         Returns True if the message was sent successfully.
         """
         amount_rupees = result.amount / 100
-        blocks = self._build_approval_blocks(
-            result, amount_rupees, vendor_name, vendor_url
-        )
+        blocks = self._build_approval_blocks(result, amount_rupees, vendor_name, vendor_url)
 
         return await self._post_message(
             text=f"🔔 Approval Required: ₹{amount_rupees:,.2f} payout by {result.agent_id}",
@@ -165,9 +162,7 @@ class SlackNotifier:
         - NO_POLICY
         """
         amount_rupees = result.amount / 100
-        blocks = self._build_rejection_blocks(
-            result, amount_rupees, vendor_name, vendor_url
-        )
+        blocks = self._build_rejection_blocks(result, amount_rupees, vendor_name, vendor_url)
 
         return await self._post_message(
             text=f"🚨 Payout Rejected: ₹{amount_rupees:,.2f} — {result.reason_code.value}",
@@ -248,10 +243,7 @@ class SlackNotifier:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": (
-                        f"{emoji} *Payout `{payout_id}` {verb}*\n"
-                        f"Decision by <@{user_name}>"
-                    ),
+                    "text": (f"{emoji} *Payout `{payout_id}` {verb}*\nDecision by <@{user_name}>"),
                 },
             },
         ]

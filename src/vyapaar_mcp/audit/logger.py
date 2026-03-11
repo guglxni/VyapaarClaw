@@ -56,6 +56,7 @@ def _write_fallback(
 
     timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%S")
     import re
+
     safe_id = re.sub(r"[^a-zA-Z0-9_-]", "_", result.payout_id)[:64]
     filename = FALLBACK_DIR / f"{safe_id}_{timestamp}.json"
 

@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-from typing import Any
 
 import httpx
 import razorpay
@@ -63,7 +62,9 @@ class RazorpayActions:
                 result = await loop.run_in_executor(None, func, *args)  # type: ignore[arg-type]
                 logger.info(
                     "%s succeeded on attempt %d for args: %s",
-                    operation, attempt, args,
+                    operation,
+                    attempt,
+                    args,
                 )
                 return result  # type: ignore[return-value]
 
@@ -71,7 +72,11 @@ class RazorpayActions:
                 last_error = e
                 logger.warning(
                     "%s failed (attempt %d/%d): %s — retrying in %.1fs",
-                    operation, attempt, MAX_RETRIES, mask_secrets(str(e)), delay,
+                    operation,
+                    attempt,
+                    MAX_RETRIES,
+                    mask_secrets(str(e)),
+                    delay,
                 )
                 await asyncio.sleep(delay)
                 delay = min(delay * BACKOFF_MULTIPLIER, MAX_DELAY)
@@ -89,9 +94,7 @@ class RazorpayActions:
                 await asyncio.sleep(delay)
                 delay = min(delay * BACKOFF_MULTIPLIER, MAX_DELAY)
 
-        raise RuntimeError(
-            f"{operation} failed after {MAX_RETRIES} attempts: {last_error}"
-        )
+        raise RuntimeError(f"{operation} failed after {MAX_RETRIES} attempts: {last_error}")
 
     async def approve_payout(self, payout_id: str) -> dict[str, object]:
         """Approve a queued payout on Razorpay X.
@@ -109,9 +112,7 @@ class RazorpayActions:
 
     def _approve_payout_sync(self, payout_id: str) -> dict[str, object]:
         """Synchronous Razorpay approve call (run in thread pool)."""
-        auth_str = base64.b64encode(
-            f"{self._key_id}:{self._key_secret}".encode()
-        ).decode()
+        auth_str = base64.b64encode(f"{self._key_id}:{self._key_secret}".encode()).decode()
         resp = httpx.post(
             f"https://api.razorpay.com/v1/payouts/{payout_id}/approve",
             headers={
@@ -148,9 +149,7 @@ class RazorpayActions:
             return result
         except AttributeError:
             # Fallback: use general HTTP
-            auth_str = base64.b64encode(
-                f"{self._key_id}:{self._key_secret}".encode()
-            ).decode()
+            auth_str = base64.b64encode(f"{self._key_id}:{self._key_secret}".encode()).decode()
             resp = httpx.patch(
                 f"https://api.razorpay.com/v1/payouts/{payout_id}/cancel",
                 headers={

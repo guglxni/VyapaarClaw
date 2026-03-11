@@ -183,7 +183,9 @@ class PostgresClient:
             )
         logger.info(
             "Audit logged: payout=%s decision=%s reason=%s",
-            result.payout_id, result.decision.value, result.reason_code.value,
+            result.payout_id,
+            result.decision.value,
+            result.reason_code.value,
         )
 
     async def list_all_agents(self) -> list[dict[str, Any]]:
@@ -193,9 +195,7 @@ class PostgresClient:
         require_approval_above, and domain restrictions.
         """
         async with self.pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT * FROM agent_policies ORDER BY agent_id"
-            )
+            rows = await conn.fetch("SELECT * FROM agent_policies ORDER BY agent_id")
 
         return [
             {

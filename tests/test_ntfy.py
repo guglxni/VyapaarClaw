@@ -8,15 +8,12 @@ import httpx
 import pytest
 
 from vyapaar_mcp.egress.ntfy_notifier import (
-    PRIORITY_DEFAULT,
     PRIORITY_HIGH,
-    PRIORITY_URGENT,
     NtfyNotifier,
     notify_with_fallback,
 )
 from vyapaar_mcp.models import Decision, GovernanceResult, ReasonCode
 from vyapaar_mcp.resilience import CircuitOpenError
-
 
 # ================================================================
 # Helpers
@@ -140,7 +137,8 @@ class TestNtfyNotifier:
             amount=75000,
         )
         sent = await notifier.send_governance_notification(
-            result_obj, vendor_name="Test Vendor Pvt Ltd",
+            result_obj,
+            vendor_name="Test Vendor Pvt Ltd",
         )
 
         assert sent is True
@@ -287,7 +285,7 @@ class TestNotifyWithFallback:
         await notify_with_fallback(slack, ntfy, result)
 
         # Nothing should be called for APPROVED
-        slack.request_approval.assert_not_called() if hasattr(slack, 'request_approval') else None
+        slack.request_approval.assert_not_called() if hasattr(slack, "request_approval") else None
         ntfy.send_governance_notification.assert_not_called()
 
     async def test_both_none_no_error(self) -> None:

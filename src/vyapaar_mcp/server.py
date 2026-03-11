@@ -137,14 +137,16 @@ async def health_endpoint(request: Request) -> JSONResponse:
     """HTTP Health Check for monitoring, load balancers, and web UI."""
     redis_ok = await _redis.ping() if _redis else False
     postgres_ok = await _postgres.ping() if _postgres else False
-    return JSONResponse({
-        "status": "ok" if (redis_ok and postgres_ok) else "degraded",
-        "service": "vyapaarclaw",
-        "version": "0.1.0",
-        "uptime_seconds": int(time.time() - _start_time),
-        "redis": "ok" if redis_ok else "error",
-        "postgres": "ok" if postgres_ok else "error",
-    })
+    return JSONResponse(
+        {
+            "status": "ok" if (redis_ok and postgres_ok) else "degraded",
+            "service": "vyapaarclaw",
+            "version": "0.1.0",
+            "uptime_seconds": int(time.time() - _start_time),
+            "redis": "ok" if redis_ok else "error",
+            "postgres": "ok" if postgres_ok else "error",
+        }
+    )
 
 
 async def slack_actions_endpoint(request: Request) -> JSONResponse:
@@ -260,12 +262,28 @@ async def telegram_callback_endpoint(request: Request) -> JSONResponse:
 
 async def _startup() -> None:
     """Initialize all services on server start."""
-    global _config, _redis, _postgres, _safe_browsing, \
-        _razorpay, _razorpay_bridge, _slack, _telegram, _poller, \
-        _governance, _poll_task, _start_time, \
-        _cb_razorpay, _cb_safe_browsing, _cb_gleif, \
-        _gleif, _anomaly_scorer, _ntfy, \
-        _azure_llm, _security_llm, _tool_validator
+    global \
+        _config, \
+        _redis, \
+        _postgres, \
+        _safe_browsing, \
+        _razorpay, \
+        _razorpay_bridge, \
+        _slack, \
+        _telegram, \
+        _poller, \
+        _governance, \
+        _poll_task, \
+        _start_time, \
+        _cb_razorpay, \
+        _cb_safe_browsing, \
+        _cb_gleif, \
+        _gleif, \
+        _anomaly_scorer, \
+        _ntfy, \
+        _azure_llm, \
+        _security_llm, \
+        _tool_validator
 
     _start_time = time.time()
     _config = load_config()
@@ -323,10 +341,7 @@ async def _startup() -> None:
         key_id=_config.razorpay_key_id,
         key_secret=_config.razorpay_key_secret,
     )
-    logger.info(
-        "✅ RazorpayBridge initialized "
-        "(mirrors razorpay/razorpay-mcp-server tools)"
-    )
+    logger.info("✅ RazorpayBridge initialized (mirrors razorpay/razorpay-mcp-server tools)")
 
     # Slack Notifier (human-in-the-loop)
     if _config.slack_bot_token and _config.slack_channel_id:
@@ -363,8 +378,7 @@ async def _startup() -> None:
             poll_interval=_config.poll_interval,
         )
         logger.info(
-            "✅ PayoutPoller ready "
-            "(interval=%ds, replaces webhook ingress)",
+            "✅ PayoutPoller ready (interval=%ds, replaces webhook ingress)",
             _config.poll_interval,
         )
     else:
@@ -383,8 +397,7 @@ async def _startup() -> None:
         rate_limit_window=_config.rate_limit_window_seconds,
     )
     logger.info(
-        "✅ Governance engine ready "
-        "(rate limit: %d req / %ds window)",
+        "✅ Governance engine ready (rate limit: %d req / %ds window)",
         _config.rate_limit_max_requests,
         _config.rate_limit_window_seconds,
     )
@@ -408,8 +421,7 @@ async def _startup() -> None:
         risk_threshold=_config.anomaly_risk_threshold,
     )
     logger.info(
-        "✅ Transaction anomaly scorer initialized "
-        "(threshold=%.2f)",
+        "✅ Transaction anomaly scorer initialized (threshold=%.2f)",
         _config.anomaly_risk_threshold,
     )
 
@@ -426,9 +438,7 @@ async def _startup() -> None:
             _config.ntfy_url,
         )
     else:
-        logger.info(
-            "ℹ️  ntfy not configured — set VYAPAAR_NTFY_TOPIC to enable push fallback"
-        )
+        logger.info("ℹ️  ntfy not configured — set VYAPAAR_NTFY_TOPIC to enable push fallback")
 
     # Azure OpenAI Client (Microsoft AI Foundry)
     _azure_llm = AzureOpenAIClient(_config)
@@ -458,27 +468,19 @@ async def _startup() -> None:
                 _config.security_llm_url,
                 _config.quarantine_strict,
             )
-            logger.info(
-                "   Taint sources: %s",
-                _config.taint_sources.replace(",", ", ")
-            )
-            logger.info(
-                "   Dual-LLM tools: %s",
-                _config.dual_llm_tools.replace(",", ", ")
-            )
+            logger.info("   Taint sources: %s", _config.taint_sources.replace(",", ", "))
+            logger.info("   Dual-LLM tools: %s", _config.dual_llm_tools.replace(",", ", "))
         else:
             logger.info(
-                "ℹ️  Dual LLM quarantine not configured — "
-                "set VYAPAAR_SECURITY_LLM_URL to enable"
+                "ℹ️  Dual LLM quarantine not configured — set VYAPAAR_SECURITY_LLM_URL to enable"
             )
     except Exception as e:
         logger.warning("⚠️  Dual LLM quarantine initialization skipped: %s", e)
 
     # Auto-polling (background task)
     if _config.auto_poll and _poller and _governance and _razorpay and _postgres:
-        async def _auto_poll_callback(
-            payout: Any, agent_id: str, vendor_url: str | None
-        ) -> None:
+
+        async def _auto_poll_callback(payout: Any, agent_id: str, vendor_url: str | None) -> None:
             """Process a polled payout through governance."""
             _require(governance=_governance, razorpay=_razorpay, postgres=_postgres)
 
@@ -486,7 +488,11 @@ async def _startup() -> None:
             metrics.record_decision(result)
 
             vendor_name: str | None = None
-            if hasattr(payout, 'fund_account') and payout.fund_account and payout.fund_account.contact:
+            if (
+                hasattr(payout, "fund_account")
+                and payout.fund_account
+                and payout.fund_account.contact
+            ):
                 vendor_name = payout.fund_account.contact.name
 
             await log_decision(_postgres, result, vendor_name=vendor_name, vendor_url=vendor_url)
@@ -503,17 +509,20 @@ async def _startup() -> None:
                 logger.error("Auto-poll action failed for %s: %s", payout.id, e)
                 if result.decision == Decision.APPROVED and _redis:
                     await _redis.rollback_budget(result.agent_id, result.amount)
-                    logger.warning("Budget rolled back for %s: %d paise", result.agent_id, result.amount)
+                    logger.warning(
+                        "Budget rolled back for %s: %d paise", result.agent_id, result.amount
+                    )
 
             await notify_with_fallback(
-                _slack, _ntfy, result,
-                vendor_name=vendor_name, vendor_url=vendor_url,
+                _slack,
+                _ntfy,
+                result,
+                vendor_name=vendor_name,
+                vendor_url=vendor_url,
                 telegram_notifier=_telegram,
             )
 
-        _poll_task = asyncio.create_task(
-            _poller.run_continuous(on_payout=_auto_poll_callback)
-        )
+        _poll_task = asyncio.create_task(_poller.run_continuous(on_payout=_auto_poll_callback))
         logger.info(
             "🔄 Auto-polling ENABLED (interval=%ds)",
             _config.poll_interval,
@@ -577,7 +586,9 @@ async def handle_razorpay_webhook(
     Returns:
         Decision result with payout_id, decision, and reason.
     """
-    _require(config=_config, redis=_redis, postgres=_postgres, governance=_governance, razorpay=_razorpay)
+    _require(
+        config=_config, redis=_redis, postgres=_postgres, governance=_governance, razorpay=_razorpay
+    )
 
     if not payload or len(payload) > 1_048_576:
         return {
@@ -663,8 +674,11 @@ async def handle_razorpay_webhook(
 
     # --- Step 9: Notification (Slack / Telegram / ntfy) ---
     await notify_with_fallback(
-        _slack, _ntfy, result,
-        vendor_name=vendor_name, vendor_url=vendor_url,
+        _slack,
+        _ntfy,
+        result,
+        vendor_name=vendor_name,
+        vendor_url=vendor_url,
         telegram_notifier=_telegram,
     )
 
@@ -698,7 +712,14 @@ async def poll_razorpay_payouts(
     Returns:
         Summary of payouts found and governance decisions made.
     """
-    _require(config=_config, redis=_redis, razorpay_bridge=_razorpay_bridge, governance=_governance, razorpay=_razorpay, postgres=_postgres)
+    _require(
+        config=_config,
+        redis=_redis,
+        razorpay_bridge=_razorpay_bridge,
+        governance=_governance,
+        razorpay=_razorpay,
+        postgres=_postgres,
+    )
 
     acct = account_number or _config.razorpay_account_number
     if not acct:
@@ -733,17 +754,12 @@ async def poll_razorpay_payouts(
     results: list[dict[str, Any]] = []
     for payout, agent_id, vendor_url in new_payouts:
         # Run governance
-        result = await _governance.evaluate(
-            payout, agent_id, vendor_url
-        )
+        result = await _governance.evaluate(payout, agent_id, vendor_url)
         metrics.record_decision(result)
 
         # Audit log
         vendor_name: str | None = None
-        if (
-            payout.fund_account
-            and payout.fund_account.contact
-        ):
+        if payout.fund_account and payout.fund_account.contact:
             vendor_name = payout.fund_account.contact.name
 
         await log_decision(
@@ -760,8 +776,7 @@ async def poll_razorpay_payouts(
             elif result.decision == Decision.REJECTED:
                 await _razorpay.reject_payout(
                     payout.id,
-                    f"{result.reason_code.value}: "
-                    f"{result.reason_detail}",
+                    f"{result.reason_code.value}: {result.reason_detail}",
                 )
         except Exception as e:
             logger.error(
@@ -771,23 +786,30 @@ async def poll_razorpay_payouts(
             )
             if result.decision == Decision.APPROVED:
                 await _redis.rollback_budget(result.agent_id, result.amount)
-                logger.warning("Budget rolled back for %s: %d paise", result.agent_id, result.amount)
+                logger.warning(
+                    "Budget rolled back for %s: %d paise", result.agent_id, result.amount
+                )
 
         # Notification (Slack / Telegram / ntfy)
         await notify_with_fallback(
-            _slack, _ntfy, result,
-            vendor_name=vendor_name, vendor_url=vendor_url,
+            _slack,
+            _ntfy,
+            result,
+            vendor_name=vendor_name,
+            vendor_url=vendor_url,
             telegram_notifier=_telegram,
         )
 
-        results.append({
-            "payout_id": result.payout_id,
-            "decision": result.decision.value,
-            "reason": result.reason_code.value,
-            "detail": result.reason_detail,
-            "amount_paise": result.amount,
-            "agent_id": result.agent_id,
-        })
+        results.append(
+            {
+                "payout_id": result.payout_id,
+                "decision": result.decision.value,
+                "reason": result.reason_code.value,
+                "detail": result.reason_detail,
+                "amount_paise": result.amount,
+                "agent_id": result.agent_id,
+            }
+        )
 
     return {
         "status": "ok",
@@ -1004,14 +1026,17 @@ async def handle_slack_action(
                     await _redis.rollback_budget(log.agent_id, log.amount)
                     logger.info(
                         "Budget rolled back via Slack action: agent=%s amount=%d",
-                        log.agent_id, log.amount,
+                        log.agent_id,
+                        log.amount,
                     )
     else:
         return {"error": f"Unknown action: {action_id}"}
 
     logger.info(
         "Slack action: %s %s payout %s",
-        user_name, action_label, payout_id,
+        user_name,
+        action_label,
+        payout_id,
     )
 
     # Update the Slack message to reflect the decision
@@ -1032,7 +1057,9 @@ async def handle_slack_action(
     if _postgres:
         logger.info(
             "Audit: slack:%s %s payout %s",
-            user_name, action_label, payout_id,
+            user_name,
+            action_label,
+            payout_id,
         )
 
     return {
@@ -1087,7 +1114,8 @@ async def handle_telegram_action(
                     await _redis.rollback_budget(log.agent_id, log.amount)
                     logger.info(
                         "Budget rolled back via Telegram action: agent=%s amount=%d",
-                        log.agent_id, log.amount,
+                        log.agent_id,
+                        log.amount,
                     )
     else:
         return {"error": f"Unknown action: {action_id}"}
@@ -1228,11 +1256,11 @@ async def get_agent_risk_profile(
 @mcp.tool()
 async def check_context_taint() -> dict[str, Any]:
     """Check if current execution context is tainted by untrusted data.
-    
+
     The Dual LLM quarantine pattern tracks when tools that ingest external
     data (webhooks, Safe Browsing, GLEIF) have been called. Once tainted,
     certain high-privilege tools are blocked to prevent prompt injection.
-    
+
     Returns:
         Taint status, sources that caused tainting, and affected tools.
     """
@@ -1253,15 +1281,15 @@ async def validate_tool_call_security(
     agent_id: str = "default",
 ) -> dict[str, Any]:
     """Validate a tool call through the Dual LLM security layer.
-    
+
     When context is tainted, this routes to the security LLM which validates
     the operation WITHOUT access to conversation context (quarantine pattern).
-    
+
     Args:
         tool_name: Name of tool to call.
         parameters: Parameters for the tool call.
         agent_id: Agent requesting the operation.
-        
+
     Returns:
         Validation result with approve/deny decision and reasoning.
     """
@@ -1278,7 +1306,6 @@ async def validate_tool_call_security(
         "per_txn_limit": str(policy.per_txn_limit) if policy else None,
         "requires_approval_above": str(policy.require_approval_above) if policy else None,
     }
-
 
     result = await _tool_validator.validate(
         tool_name=tool_name,
@@ -1304,17 +1331,17 @@ async def azure_chat(
     max_tokens: int = 1000,
 ) -> dict[str, Any]:
     """Send a chat completion request to Kimi K2.5 via Azure AI.
-    
+
     Security note: This tool marks context as TAINTED because LLM responses
     can contain injected content. Subsequent high-privilege tool calls
     require Dual LLM validation or are blocked.
-    
+
     Args:
         message: User message to send.
         system_prompt: System prompt/context for the LLM.
         temperature: Sampling temperature (0-2, default 0.7).
         max_tokens: Maximum tokens to generate.
-        
+
     Returns:
         LLM response text and token usage.
     """
@@ -1358,10 +1385,10 @@ async def azure_chat(
 @mcp.tool()
 async def get_archestra_status() -> dict[str, Any]:
     """Get Archestra deterministic policy enforcement status.
-    
+
     Returns current configuration for the security proxy layer that
     enforces hard boundaries on tool access (vs probabilistic guardrails).
-    
+
     Returns:
         Archestra config, taint tracking status, and policy tiers.
     """
@@ -1428,13 +1455,15 @@ async def forecast_cash_flow(agent_id: str = "", horizon_days: int = 7) -> dict[
         nonzero_spends = [s for s in spends if s > 0]
 
         if not nonzero_spends:
-            forecasts.append({
-                "agent_id": aid,
-                "burn_rate_per_day": 0,
-                "trend": "inactive",
-                "budget_health": "green",
-                "note": "No spending in analysis window.",
-            })
+            forecasts.append(
+                {
+                    "agent_id": aid,
+                    "burn_rate_per_day": 0,
+                    "trend": "inactive",
+                    "budget_health": "green",
+                    "note": "No spending in analysis window.",
+                }
+            )
             continue
 
         avg_daily = sum(nonzero_spends) / len(nonzero_spends)
@@ -1467,27 +1496,29 @@ async def forecast_cash_flow(agent_id: str = "", horizon_days: int = 7) -> dict[
         current_spend = await _redis.get_daily_spend(aid)
         remaining_today = max(0, daily_limit - current_spend)
 
-        forecasts.append({
-            "agent_id": aid,
-            "daily_limit_paise": daily_limit,
-            "avg_daily_spend_paise": int(avg_daily),
-            "current_spend_today_paise": current_spend,
-            "remaining_today_paise": remaining_today,
-            "burn_rate_per_day": int(avg_daily),
-            "utilisation_pct": round(utilisation * 100, 1),
-            "trend": trend,
-            "budget_health": health,
-            "analysis_days": horizon_days,
-            "active_spend_days": len(nonzero_spends),
-        })
+        forecasts.append(
+            {
+                "agent_id": aid,
+                "daily_limit_paise": daily_limit,
+                "avg_daily_spend_paise": int(avg_daily),
+                "current_spend_today_paise": current_spend,
+                "remaining_today_paise": remaining_today,
+                "burn_rate_per_day": int(avg_daily),
+                "utilisation_pct": round(utilisation * 100, 1),
+                "trend": trend,
+                "budget_health": health,
+                "analysis_days": horizon_days,
+                "active_spend_days": len(nonzero_spends),
+            }
+        )
 
     return {"forecasts": forecasts}
 
 
 @mcp.tool()
 async def generate_compliance_report(
-    period_days: int = 7, agent_id: str = "",
-
+    period_days: int = 7,
+    agent_id: str = "",
 ) -> dict[str, Any]:
     """Generate a compliance report summarizing governance decisions over a period.
 
@@ -1536,8 +1567,7 @@ async def generate_compliance_report(
         )
     if held > 0:
         recommendations.append(
-            f"{held} transactions were held for human review. "
-            "Ensure HITL queue is being monitored."
+            f"{held} transactions were held for human review. Ensure HITL queue is being monitored."
         )
 
     agent_breakdown = stats.get("agent_breakdown", {})
@@ -1546,11 +1576,13 @@ async def generate_compliance_report(
         agent_rejected = agent_decisions.get("REJECTED", {}).get("count", 0)
         agent_total = sum(d.get("count", 0) for d in agent_decisions.values())
         if agent_total > 0 and agent_rejected / agent_total > 0.3:
-            high_risk_agents.append({
-                "agent_id": aid,
-                "rejection_rate_pct": round(agent_rejected / agent_total * 100, 1),
-                "total_decisions": agent_total,
-            })
+            high_risk_agents.append(
+                {
+                    "agent_id": aid,
+                    "rejection_rate_pct": round(agent_rejected / agent_total * 100, 1),
+                    "total_decisions": agent_total,
+                }
+            )
 
     return {
         "report_type": "compliance",
@@ -1568,9 +1600,7 @@ async def generate_compliance_report(
         "top_rejection_reasons": stats.get("top_rejection_reasons", []),
         "high_risk_agents": high_risk_agents,
         "agent_breakdown": agent_breakdown,
-        "total_volume_paise": sum(
-            d.get("total_amount", 0) for d in decisions.values()
-        ),
+        "total_volume_paise": sum(d.get("total_amount", 0) for d in decisions.values()),
         "recommendations": recommendations,
     }
 
@@ -1675,9 +1705,7 @@ async def evaluate_payout(
         "threat_types": result.threat_types,
         "processing_ms": result.processing_ms,
         "risk_assessment": {
-            "budget_remaining_after": (
-                await _redis.get_daily_spend(agent_id)
-            ),
+            "budget_remaining_after": (await _redis.get_daily_spend(agent_id)),
         },
     }
 
@@ -1705,16 +1733,16 @@ async def list_agents() -> dict[str, Any]:
         current_spend = await _redis.get_daily_spend(aid)
         utilisation = (current_spend / daily_limit * 100) if daily_limit > 0 else 0
 
-        agents.append({
-            **agent,
-            "current_daily_spend_paise": current_spend,
-            "utilisation_pct": round(utilisation, 1),
-            "budget_health": (
-                "red" if utilisation > 80
-                else "yellow" if utilisation > 50
-                else "green"
-            ),
-        })
+        agents.append(
+            {
+                **agent,
+                "current_daily_spend_paise": current_spend,
+                "utilisation_pct": round(utilisation, 1),
+                "budget_health": (
+                    "red" if utilisation > 80 else "yellow" if utilisation > 50 else "green"
+                ),
+            }
+        )
 
     return {
         "total_agents": len(agents),
@@ -1800,10 +1828,7 @@ async def get_vendor_trust_score(vendor_url: str) -> dict[str, Any]:
     domain = urlparse(vendor_url).netloc or vendor_url
 
     logs = await _postgres.get_audit_logs(limit=500)
-    vendor_logs = [
-        log for log in logs
-        if log.vendor_url and domain in log.vendor_url
-    ]
+    vendor_logs = [log for log in logs if log.vendor_url and domain in log.vendor_url]
 
     if not vendor_logs:
         cached_rep = await _redis.get_cached_reputation(vendor_url)
@@ -1814,13 +1839,16 @@ async def get_vendor_trust_score(vendor_url: str) -> dict[str, Any]:
             "confidence": "low",
             "transactions": 0,
             "cached_reputation": cached_rep,
-            "note": "No transaction history. Score is neutral. Run check_vendor_reputation and verify_vendor_entity for initial assessment.",
+            "note": (
+                "No transaction history. Score is neutral. "
+                "Run check_vendor_reputation and verify_vendor_entity for initial assessment."
+            ),
         }
 
     total = len(vendor_logs)
-    approved = sum(1 for l in vendor_logs if l.decision == Decision.APPROVED)
-    rejected = sum(1 for l in vendor_logs if l.decision == Decision.REJECTED)
-    total_volume = sum(l.amount for l in vendor_logs)
+    approved = sum(1 for entry in vendor_logs if entry.decision == Decision.APPROVED)
+    rejected = sum(1 for entry in vendor_logs if entry.decision == Decision.REJECTED)
+    total_volume = sum(entry.amount for entry in vendor_logs)
     approval_rate = approved / total if total > 0 else 0
 
     base_score = approval_rate * 70
@@ -1832,7 +1860,7 @@ async def get_vendor_trust_score(vendor_url: str) -> dict[str, Any]:
     elif total >= 2:
         base_score += 5
 
-    threat_count = sum(len(l.threat_types) for l in vendor_logs)
+    threat_count = sum(len(entry.threat_types) for entry in vendor_logs)
     if threat_count > 0:
         base_score -= min(30, threat_count * 10)
 
@@ -1904,9 +1932,7 @@ async def get_financial_calendar(days_ahead: int = 7) -> dict[str, Any]:
 
     busiest_days = daily_activity.most_common(3)
     recurring_vendors = [
-        {"vendor": v, "transactions": c}
-        for v, c in vendor_frequency.most_common(5)
-        if c >= 2
+        {"vendor": v, "transactions": c} for v, c in vendor_frequency.most_common(5) if c >= 2
     ]
 
     agents_raw = await _postgres.list_all_agents()
@@ -1919,12 +1945,14 @@ async def get_financial_calendar(days_ahead: int = 7) -> dict[str, Any]:
             avg_daily = sum(recent_spends) / len(recent_spends)
             daily_limit = agent["daily_limit"]
             if daily_limit > 0 and avg_daily / daily_limit > 0.6:
-                pressure_points.append({
-                    "agent_id": aid,
-                    "avg_daily_spend": int(avg_daily),
-                    "daily_limit": daily_limit,
-                    "utilisation_pct": round(avg_daily / daily_limit * 100, 1),
-                })
+                pressure_points.append(
+                    {
+                        "agent_id": aid,
+                        "avg_daily_spend": int(avg_daily),
+                        "daily_limit": daily_limit,
+                        "utilisation_pct": round(avg_daily / daily_limit * 100, 1),
+                    }
+                )
 
     today = datetime.now().strftime("%A")
 
@@ -1933,19 +1961,14 @@ async def get_financial_calendar(days_ahead: int = 7) -> dict[str, Any]:
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "recent_activity": {
             "total_decisions_in_log": len(logs),
-            "busiest_days_of_week": [
-                {"day": d, "avg_transactions": c} for d, c in busiest_days
-            ],
+            "busiest_days_of_week": [{"day": d, "avg_transactions": c} for d, c in busiest_days],
             "today_is": today,
-            "today_expected_volume": (
-                daily_activity.get(today, 0)
-            ),
+            "today_expected_volume": (daily_activity.get(today, 0)),
         },
         "recurring_vendors": recurring_vendors,
         "budget_pressure_points": pressure_points,
         "most_active_agents": [
-            {"agent_id": a, "transactions": c}
-            for a, c in agent_activity.most_common(5)
+            {"agent_id": a, "transactions": c} for a, c in agent_activity.most_common(5)
         ],
     }
 
@@ -1981,15 +2004,13 @@ def run_server_sync() -> None:
 
         async def sse_handler(request: Request) -> Response:
             """Handle SSE connections - returns session ID via SSE event.
-            
+
             Note: POST is accepted as a workaround for Kimi CLI bug that sends POST instead of GET.
             """
             scope, receive, send = request.scope, request.receive, request._send
             async with sse.connect_sse(scope, receive, send) as streams:
                 await mcp._mcp_server.run(
-                    streams[0],
-                    streams[1],
-                    mcp._mcp_server.create_initialization_options()
+                    streams[0], streams[1], mcp._mcp_server.create_initialization_options()
                 )
             # Return empty response after SSE connection closes
             return Response()
@@ -2002,7 +2023,7 @@ def run_server_sync() -> None:
                 Route("/health", endpoint=health_endpoint, methods=["GET"]),
                 Route("/slack/actions", endpoint=slack_actions_endpoint, methods=["POST"]),
                 Route("/telegram/callback", endpoint=telegram_callback_endpoint, methods=["POST"]),
-            ]
+            ],
         )
 
         # Add custom routes from mcp

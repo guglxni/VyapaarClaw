@@ -103,40 +103,36 @@ def extract_webhook_id(event: RazorpayWebhookEvent) -> str:
 
 def validate_webhook_payload(payload: str) -> bytes:
     """Validate and sanitize webhook payload before processing.
-    
+
     Implements fail-fast input validation per API security best practices.
-    
+
     Args:
         payload: Raw webhook payload string.
-        
+
     Returns:
         Validated payload as bytes.
-        
+
     Raises:
         WebhookValidationError: If payload fails validation.
     """
     # Check for empty payload
     if not payload:
-        raise WebhookValidationError(
-            "Empty webhook payload",
-            code="EMPTY_PAYLOAD"
-        )
-    
+        raise WebhookValidationError("Empty webhook payload", code="EMPTY_PAYLOAD")
+
     # Encode to bytes for size check
     payload_bytes = payload.encode("utf-8")
-    
+
     # Check payload size (DoS protection)
     if len(payload_bytes) > MAX_PAYLOAD_SIZE:
         raise WebhookValidationError(
             f"Webhook payload exceeds maximum size of {MAX_PAYLOAD_SIZE} bytes",
-            code="PAYLOAD_TOO_LARGE"
+            code="PAYLOAD_TOO_LARGE",
         )
-    
+
     # Check for obviously malformed data (potential injection)
     if len(payload_bytes) < 10:  # Minimum reasonable size
         raise WebhookValidationError(
-            "Webhook payload too short to be valid",
-            code="PAYLOAD_TOO_SHORT"
+            "Webhook payload too short to be valid", code="PAYLOAD_TOO_SHORT"
         )
-    
+
     return payload_bytes

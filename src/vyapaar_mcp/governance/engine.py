@@ -69,16 +69,22 @@ class GovernanceEngine:
         policy = await self._postgres.get_agent_policy(agent_id)
         if policy is None:
             return self._result(
-                payout, agent_id, start_time,
-                Decision.REJECTED, ReasonCode.NO_POLICY,
+                payout,
+                agent_id,
+                start_time,
+                Decision.REJECTED,
+                ReasonCode.NO_POLICY,
                 f"No spending policy found for agent '{agent_id}'",
             )
 
         # --- Step 2: Per-transaction limit check ---
         if policy.per_txn_limit is not None and payout.amount > policy.per_txn_limit:
             return self._result(
-                payout, agent_id, start_time,
-                Decision.REJECTED, ReasonCode.TXN_LIMIT_EXCEEDED,
+                payout,
+                agent_id,
+                start_time,
+                Decision.REJECTED,
+                ReasonCode.TXN_LIMIT_EXCEEDED,
                 f"Amount {payout.amount} paise exceeds per-txn limit"
                 f" of {policy.per_txn_limit} paise",
             )
@@ -93,8 +99,11 @@ class GovernanceEngine:
             metrics.record_rate_limit_check(allowed=allowed)
             if not allowed:
                 return self._result(
-                    payout, agent_id, start_time,
-                    Decision.REJECTED, ReasonCode.RATE_LIMITED,
+                    payout,
+                    agent_id,
+                    start_time,
+                    Decision.REJECTED,
+                    ReasonCode.RATE_LIMITED,
                     f"Rate limit exceeded: {count}/{self._rate_limit_max}"
                     f" requests in {self._rate_limit_window}s window",
                 )
@@ -107,8 +116,11 @@ class GovernanceEngine:
         if not budget_ok:
             current_spend = await self._redis.get_daily_spend(agent_id)
             return self._result(
-                payout, agent_id, start_time,
-                Decision.REJECTED, ReasonCode.LIMIT_EXCEEDED,
+                payout,
+                agent_id,
+                start_time,
+                Decision.REJECTED,
+                ReasonCode.LIMIT_EXCEEDED,
                 f"Daily budget exceeded: spent {current_spend}"
                 f" + {payout.amount} > limit {policy.daily_limit} paise",
             )
@@ -122,8 +134,11 @@ class GovernanceEngine:
                 # Rollback budget since we're rejecting
                 await self._redis.rollback_budget(agent_id, payout.amount)
                 return self._result(
-                    payout, agent_id, start_time,
-                    Decision.REJECTED, ReasonCode.DOMAIN_BLOCKED,
+                    payout,
+                    agent_id,
+                    start_time,
+                    Decision.REJECTED,
+                    ReasonCode.DOMAIN_BLOCKED,
                     f"Vendor domain '{domain}' is on the blocklist",
                 )
 
@@ -131,8 +146,11 @@ class GovernanceEngine:
             if domain and policy.allowed_domains and domain not in policy.allowed_domains:
                 await self._redis.rollback_budget(agent_id, payout.amount)
                 return self._result(
-                    payout, agent_id, start_time,
-                    Decision.REJECTED, ReasonCode.DOMAIN_BLOCKED,
+                    payout,
+                    agent_id,
+                    start_time,
+                    Decision.REJECTED,
+                    ReasonCode.DOMAIN_BLOCKED,
                     f"Vendor domain '{domain}' not in allowlist",
                 )
 
@@ -145,8 +163,11 @@ class GovernanceEngine:
                 await self._redis.rollback_budget(agent_id, payout.amount)
                 threat_types = sb_result.threat_types
                 return self._result(
-                    payout, agent_id, start_time,
-                    Decision.REJECTED, ReasonCode.RISK_HIGH,
+                    payout,
+                    agent_id,
+                    start_time,
+                    Decision.REJECTED,
+                    ReasonCode.RISK_HIGH,
                     f"Google Safe Browsing flagged URL as unsafe: {', '.join(threat_types)}",
                     threat_types=threat_types,
                 )
@@ -157,16 +178,22 @@ class GovernanceEngine:
             and payout.amount > policy.require_approval_above
         ):
             return self._result(
-                payout, agent_id, start_time,
-                Decision.HELD, ReasonCode.APPROVAL_REQUIRED,
+                payout,
+                agent_id,
+                start_time,
+                Decision.HELD,
+                ReasonCode.APPROVAL_REQUIRED,
                 f"Amount {payout.amount} paise exceeds approval"
                 f" threshold of {policy.require_approval_above} paise",
             )
 
         # --- Step 7: All checks passed → APPROVE ---
         return self._result(
-            payout, agent_id, start_time,
-            Decision.APPROVED, ReasonCode.POLICY_OK,
+            payout,
+            agent_id,
+            start_time,
+            Decision.APPROVED,
+            ReasonCode.POLICY_OK,
             "All governance checks passed",
         )
 
@@ -206,7 +233,11 @@ class GovernanceEngine:
         logger.log(
             log_level,
             "DECISION: %s | payout=%s agent=%s amount=%d reason=%s (%dms)",
-            decision.value, payout.id, agent_id, payout.amount,
-            reason_code.value, elapsed_ms,
+            decision.value,
+            payout.id,
+            agent_id,
+            payout.amount,
+            reason_code.value,
+            elapsed_ms,
         )
         return result

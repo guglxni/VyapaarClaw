@@ -156,7 +156,9 @@ class SafeBrowsingChecker:
         except httpx.HTTPStatusError as e:
             logger.error(
                 "Safe Browsing API error %d for URL: %s — %s",
-                e.response.status_code, url, e.response.text,
+                e.response.status_code,
+                url,
+                e.response.text,
             )
             # 4xx errors (bad key, quota) — also fail closed
             return SafeBrowsingResponse(

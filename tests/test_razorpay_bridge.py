@@ -14,18 +14,19 @@ These tests require:
 from __future__ import annotations
 
 import os
+
 import pytest
 
 from vyapaar_mcp.config import VyapaarConfig
-from vyapaar_mcp.ingress.razorpay_bridge import RazorpayBridge, DEFAULT_BINARY_PATH
+from vyapaar_mcp.ingress.razorpay_bridge import DEFAULT_BINARY_PATH, RazorpayBridge
 
 # Skip all tests if Go binary not built
 GO_BINARY_EXISTS = os.path.isfile(DEFAULT_BINARY_PATH)
 pytestmark = pytest.mark.skipif(
     not GO_BINARY_EXISTS,
     reason=f"Go binary not found at {DEFAULT_BINARY_PATH}. "
-           f"Build: cd vendor/razorpay-mcp-server && "
-           f"go build -o ../../bin/razorpay-mcp-server ./cmd/razorpay-mcp-server",
+    f"Build: cd vendor/razorpay-mcp-server && "
+    f"go build -o ../../bin/razorpay-mcp-server ./cmd/razorpay-mcp-server",
 )
 
 

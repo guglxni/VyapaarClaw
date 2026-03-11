@@ -5,7 +5,7 @@ Tests message formatting, API calls, and notification logic.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -54,9 +54,7 @@ class TestApprovalBlocks:
 
     def test_approval_blocks_with_no_vendor(self) -> None:
         result = make_result()
-        blocks = SlackNotifier._build_approval_blocks(
-            result, 750.0, None, None
-        )
+        blocks = SlackNotifier._build_approval_blocks(result, 750.0, None, None)
         # Should use "Unknown Vendor" fallback
         found_vendor = False
         for block in blocks:
@@ -87,9 +85,7 @@ class TestRejectionBlocks:
             reason_code=ReasonCode.RISK_HIGH,
         )
         result.threat_types = ["MALWARE", "SOCIAL_ENGINEERING"]
-        blocks = SlackNotifier._build_rejection_blocks(
-            result, 100.0, None, "https://evil.com"
-        )
+        blocks = SlackNotifier._build_rejection_blocks(result, 100.0, None, "https://evil.com")
         # Check that threats appear somewhere in blocks
         block_text = str(blocks)
         assert "MALWARE" in block_text

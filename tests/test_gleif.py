@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -14,7 +13,6 @@ from vyapaar_mcp.reputation.gleif import (
     GLEIFResponse,
 )
 from vyapaar_mcp.resilience import CircuitBreaker, CircuitOpenError
-
 
 # ================================================================
 # GLEIFEntity Tests

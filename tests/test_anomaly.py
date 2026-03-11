@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from datetime import UTC, datetime
 
 import numpy as np
 import pytest
 
 from vyapaar_mcp.reputation.anomaly import (
+    _MIN_TRAINING_SAMPLES,
     AnomalyScore,
     TransactionAnomalyScorer,
-    _MIN_TRAINING_SAMPLES,
 )
-
 
 # ================================================================
 # AnomalyScore Tests
@@ -29,7 +27,12 @@ class TestAnomalyScore:
             risk_score=0.85,
             raw_score=-0.35,
             is_anomalous=True,
-            features={"amount_log": 5.0, "hour_of_day": 3.0, "day_of_week": 1.0, "amount_zscore": 3.2},
+            features={
+                "amount_log": 5.0,
+                "hour_of_day": 3.0,
+                "day_of_week": 1.0,
+                "amount_zscore": 3.2,
+            },
             model_trained=True,
             training_samples=50,
             detail="Anomaly detected: unusual amount (z=3.2)",
@@ -79,7 +82,7 @@ class TestTransactionAnomalyScorer:
 
     async def test_feature_extraction(self) -> None:
         """Test that features are correctly extracted."""
-        ts = datetime(2025, 6, 15, 14, 30, 0, tzinfo=timezone.utc)  # Sunday 14:30
+        ts = datetime(2025, 6, 15, 14, 30, 0, tzinfo=UTC)  # Sunday 14:30
         features = TransactionAnomalyScorer._extract_features(50000, ts)
 
         assert features["amount_log"] == pytest.approx(np.log10(50000), rel=1e-3)
@@ -89,7 +92,7 @@ class TestTransactionAnomalyScorer:
 
     async def test_feature_extraction_minimum_amount(self) -> None:
         """Test log10 doesn't fail on zero/negative amounts."""
-        features = TransactionAnomalyScorer._extract_features(0, datetime.now(timezone.utc))
+        features = TransactionAnomalyScorer._extract_features(0, datetime.now(UTC))
         assert features["amount_log"] == 0.0  # log10(1) = 0
 
     async def test_scoring_with_redis_history(self, fake_redis) -> None:
@@ -100,20 +103,22 @@ class TestTransactionAnomalyScorer:
         # All at normal business hours
         for i in range(15):
             amount = 10000 + (i * 2000)  # 10000 to 38000 paise
-            ts = datetime(2025, 6, 10 + (i % 5), 10 + (i % 8), 0, 0, tzinfo=timezone.utc)
+            ts = datetime(2025, 6, 10 + (i % 5), 10 + (i % 8), 0, 0, tzinfo=UTC)
             features = TransactionAnomalyScorer._extract_features(amount, ts)
-            entry = json.dumps({
-                **features,
-                "amount_paise": amount,
-                "timestamp": ts.isoformat(),
-            })
-            await fake_redis._client.lpush(f"anomaly:history:test-agent", entry)
+            entry = json.dumps(
+                {
+                    **features,
+                    "amount_paise": amount,
+                    "timestamp": ts.isoformat(),
+                }
+            )
+            await fake_redis._client.lpush("anomaly:history:test-agent", entry)
 
         # Score a normal transaction
         normal_score = await scorer.score_transaction(
             amount=20000,  # ₹200 — well within normal range
             agent_id="test-agent",
-            timestamp=datetime(2025, 6, 16, 12, 0, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2025, 6, 16, 12, 0, 0, tzinfo=UTC),
         )
         assert normal_score.model_trained is True
         assert normal_score.training_samples >= _MIN_TRAINING_SAMPLES
@@ -125,27 +130,29 @@ class TestTransactionAnomalyScorer:
         # Seed with 20 consistent small transactions at business hours
         for i in range(20):
             amount = 10000 + (i * 1000)  # 10000 to 29000 paise (₹100-₹290)
-            ts = datetime(2025, 6, 10 + (i % 5), 10 + (i % 4), 0, 0, tzinfo=timezone.utc)
+            ts = datetime(2025, 6, 10 + (i % 5), 10 + (i % 4), 0, 0, tzinfo=UTC)
             features = TransactionAnomalyScorer._extract_features(amount, ts)
-            entry = json.dumps({
-                **features,
-                "amount_paise": amount,
-                "timestamp": ts.isoformat(),
-            })
+            entry = json.dumps(
+                {
+                    **features,
+                    "amount_paise": amount,
+                    "timestamp": ts.isoformat(),
+                }
+            )
             await fake_redis._client.lpush("anomaly:history:consistent-agent", entry)
 
         # Score the normal pattern
         normal = await scorer.score_transaction(
             amount=15000,
             agent_id="consistent-agent",
-            timestamp=datetime(2025, 6, 16, 11, 0, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2025, 6, 16, 11, 0, 0, tzinfo=UTC),
         )
 
         # Score a wildly different transaction (₹500,000 at 3am on Sunday)
         outlier = await scorer.score_transaction(
             amount=50000000,  # ₹500,000 — 1000x normal
             agent_id="consistent-agent",
-            timestamp=datetime(2025, 6, 15, 3, 0, 0, tzinfo=timezone.utc),  # Sunday 3am
+            timestamp=datetime(2025, 6, 15, 3, 0, 0, tzinfo=UTC),  # Sunday 3am
         )
 
         # The outlier should score higher risk than the normal one
@@ -165,13 +172,15 @@ class TestTransactionAnomalyScorer:
         # Seed 5 transactions
         for i in range(5):
             amount = 10000 * (i + 1)
-            ts = datetime(2025, 6, 10, 10 + i, 0, 0, tzinfo=timezone.utc)
+            ts = datetime(2025, 6, 10, 10 + i, 0, 0, tzinfo=UTC)
             features = TransactionAnomalyScorer._extract_features(amount, ts)
-            entry = json.dumps({
-                **features,
-                "amount_paise": amount,
-                "timestamp": ts.isoformat(),
-            })
+            entry = json.dumps(
+                {
+                    **features,
+                    "amount_paise": amount,
+                    "timestamp": ts.isoformat(),
+                }
+            )
             await fake_redis._client.lpush("anomaly:history:profile-agent", entry)
 
         profile = await scorer.get_agent_profile("profile-agent")
@@ -188,7 +197,9 @@ class TestTransactionAnomalyScorer:
             {"amount_log": 4.2, "hour_of_day": 9.0, "day_of_week": 0.0},
         ]
         matrix = TransactionAnomalyScorer._build_feature_matrix(
-            history, mean_amt=4.233, std_amt=0.25,
+            history,
+            mean_amt=4.233,
+            std_amt=0.25,
         )
         assert matrix.shape == (3, 4)
         assert matrix.dtype == np.float64

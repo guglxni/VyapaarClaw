@@ -42,10 +42,7 @@ class AzureOpenAIClient:
     @property
     def is_configured(self) -> bool:
         """Check if Azure AI is properly configured."""
-        return bool(
-            self._config.azure_openai_endpoint
-            and self._config.azure_openai_api_key
-        )
+        return bool(self._config.azure_openai_endpoint and self._config.azure_openai_api_key)
 
     @property
     def model_id(self) -> str:

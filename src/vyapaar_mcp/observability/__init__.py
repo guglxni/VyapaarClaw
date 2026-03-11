@@ -16,11 +16,11 @@ Metrics exposed:
 
 from __future__ import annotations
 
-import time
 import threading
+import time
 from typing import Any
 
-from vyapaar_mcp.models import Decision, GovernanceResult, ReasonCode
+from vyapaar_mcp.models import GovernanceResult
 
 
 class MetricsCollector:
@@ -46,8 +46,15 @@ class MetricsCollector:
         self._latency_sum: float = 0.0
         self._latency_count: int = 0
         self._latency_buckets: dict[str, int] = {
-            "5": 0, "10": 0, "25": 0, "50": 0, "100": 0,
-            "250": 0, "500": 0, "1000": 0, "+Inf": 0,
+            "5": 0,
+            "10": 0,
+            "25": 0,
+            "50": 0,
+            "100": 0,
+            "250": 0,
+            "500": 0,
+            "1000": 0,
+            "+Inf": 0,
         }
 
         # Webhook / polling counters
@@ -168,17 +175,15 @@ class MetricsCollector:
             lines.append("# TYPE vyapaar_decisions_total counter")
             for key, count in sorted(self._decisions.items()):
                 decision, reason = key.split("|", 1)
-                lines.append(
-                    f'vyapaar_decisions_total{{decision="{decision}",reason_code="{reason}"}} {count}'
-                )
+                metric = f'vyapaar_decisions_total{{decision="{decision}"'
+                metric += f',reason_code="{reason}"}} {count}'
+                lines.append(metric)
 
             # --- Amounts ---
             lines.append("# HELP vyapaar_payout_amount_paise_total Total payout amounts in paise")
             lines.append("# TYPE vyapaar_payout_amount_paise_total counter")
             for decision, total in sorted(self._amounts.items()):
-                lines.append(
-                    f'vyapaar_payout_amount_paise_total{{decision="{decision}"}} {total}'
-                )
+                lines.append(f'vyapaar_payout_amount_paise_total{{decision="{decision}"}} {total}')
 
             # --- Latency ---
             lines.append("# HELP vyapaar_decision_latency_ms Decision processing latency in ms")
@@ -189,8 +194,9 @@ class MetricsCollector:
                 key=lambda x: float("inf") if x[0] == "+Inf" else float(x[0]),
             ):
                 cumulative += count if bucket != "+Inf" else 0
-                le = bucket if bucket == "+Inf" else bucket
-                lines.append(f'vyapaar_decision_latency_ms_bucket{{le="{le}"}} {cumulative if bucket != "+Inf" else self._latency_count}')
+                le = bucket
+                val = cumulative if bucket != "+Inf" else self._latency_count
+                lines.append(f'vyapaar_decision_latency_ms_bucket{{le="{le}"}} {val}')
             lines.append(f"vyapaar_decision_latency_ms_sum {self._latency_sum}")
             lines.append(f"vyapaar_decision_latency_ms_count {self._latency_count}")
 
@@ -223,11 +229,15 @@ class MetricsCollector:
             lines.append("# TYPE vyapaar_webhooks_received_total counter")
             lines.append(f"vyapaar_webhooks_received_total {self._webhooks_received}")
 
-            lines.append("# HELP vyapaar_webhooks_invalid_sig_total Webhooks with invalid signature")
+            lines.append(
+                "# HELP vyapaar_webhooks_invalid_sig_total Webhooks with invalid signature"
+            )
             lines.append("# TYPE vyapaar_webhooks_invalid_sig_total counter")
             lines.append(f"vyapaar_webhooks_invalid_sig_total {self._webhooks_invalid_sig}")
 
-            lines.append("# HELP vyapaar_webhooks_idempotent_skip_total Webhooks skipped (idempotent)")
+            lines.append(
+                "# HELP vyapaar_webhooks_idempotent_skip_total Webhooks skipped (idempotent)"
+            )
             lines.append("# TYPE vyapaar_webhooks_idempotent_skip_total counter")
             lines.append(f"vyapaar_webhooks_idempotent_skip_total {self._webhooks_idempotent_skip}")
 
@@ -274,7 +284,9 @@ class MetricsCollector:
                 "latency": {
                     "sum_ms": self._latency_sum,
                     "count": self._latency_count,
-                    "avg_ms": round(self._latency_sum / self._latency_count, 1) if self._latency_count else 0,
+                    "avg_ms": round(self._latency_sum / self._latency_count, 1)
+                    if self._latency_count
+                    else 0,
                 },
                 "budget_checks": dict(self._budget_checks),
                 "reputation_checks": dict(self._reputation_checks),

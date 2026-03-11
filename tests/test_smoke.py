@@ -10,14 +10,13 @@ Tests verify:
 
 from __future__ import annotations
 
-import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from vyapaar_mcp.config import VyapaarConfig, load_config
+from vyapaar_mcp.config import VyapaarConfig
 from vyapaar_mcp.db.redis_client import RedisClient
 from vyapaar_mcp.governance.engine import GovernanceEngine
 from vyapaar_mcp.models import (
@@ -26,7 +25,6 @@ from vyapaar_mcp.models import (
     PayoutEntity,
     ReasonCode,
 )
-
 
 # ================================================================
 # Config Smoke Tests
@@ -133,8 +131,12 @@ class TestGovernanceDecisionMatrix:
         fake_postgres.get_agent_policy = AsyncMock(return_value=policy)
 
         big_payout = PayoutEntity(
-            id="pout_big", amount=300000, currency="INR",
-            status="queued", mode="IMPS", purpose="vendor_payment",
+            id="pout_big",
+            amount=300000,
+            currency="INR",
+            status="queued",
+            mode="IMPS",
+            purpose="vendor_payment",
         )
 
         result = await engine.evaluate(big_payout, "test-agent")
@@ -191,8 +193,12 @@ class TestGovernanceDecisionMatrix:
         engine._safe_browsing.check_url = AsyncMock(return_value=mock_sb_result)
 
         held_payout = PayoutEntity(
-            id="pout_held", amount=180000, currency="INR",
-            status="queued", mode="IMPS", purpose="vendor_payment",
+            id="pout_held",
+            amount=180000,
+            currency="INR",
+            status="queued",
+            mode="IMPS",
+            purpose="vendor_payment",
         )
 
         result = await engine.evaluate(held_payout, "test-agent", "https://safe.com")
@@ -293,6 +299,7 @@ class TestDemoImports:
         try:
             # This should not raise
             import showcase_demo  # type: ignore
+
             assert hasattr(showcase_demo, "run_showcase")
         finally:
             sys.path.pop(0)

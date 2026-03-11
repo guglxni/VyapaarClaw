@@ -7,13 +7,13 @@ notify_with_fallback integration for the Telegram channel.
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 
-from vyapaar_mcp.egress.telegram_notifier import TelegramNotifier, _escape_html
 from vyapaar_mcp.egress.ntfy_notifier import notify_with_fallback
+from vyapaar_mcp.egress.telegram_notifier import TelegramNotifier, _escape_html
 from vyapaar_mcp.models import Decision, GovernanceResult, ReasonCode
 
 
@@ -62,9 +62,9 @@ class TestRequestApproval:
     async def test_sends_message_with_inline_keyboard(self) -> None:
         notifier = TelegramNotifier(bot_token="tok", chat_id="123")
         notifier._http = AsyncMock(spec=httpx.AsyncClient)
-        notifier._http.post = AsyncMock(return_value=MagicMock(
-            json=lambda: {"ok": True, "result": {"message_id": 42}}
-        ))
+        notifier._http.post = AsyncMock(
+            return_value=MagicMock(json=lambda: {"ok": True, "result": {"message_id": 42}})
+        )
 
         result = _result()
         success = await notifier.request_approval(result, vendor_name="Acme Corp")
@@ -88,9 +88,9 @@ class TestRequestApproval:
     async def test_returns_false_on_api_error(self) -> None:
         notifier = TelegramNotifier(bot_token="tok", chat_id="123")
         notifier._http = AsyncMock(spec=httpx.AsyncClient)
-        notifier._http.post = AsyncMock(return_value=MagicMock(
-            json=lambda: {"ok": False, "description": "Forbidden"}
-        ))
+        notifier._http.post = AsyncMock(
+            return_value=MagicMock(json=lambda: {"ok": False, "description": "Forbidden"})
+        )
 
         assert await notifier.request_approval(_result()) is False
 
@@ -107,9 +107,9 @@ class TestRejectionAlert:
     async def test_sends_rejection_message(self) -> None:
         notifier = TelegramNotifier(bot_token="tok", chat_id="123")
         notifier._http = AsyncMock(spec=httpx.AsyncClient)
-        notifier._http.post = AsyncMock(return_value=MagicMock(
-            json=lambda: {"ok": True, "result": {"message_id": 99}}
-        ))
+        notifier._http.post = AsyncMock(
+            return_value=MagicMock(json=lambda: {"ok": True, "result": {"message_id": 99}})
+        )
 
         result = _result(
             decision=Decision.REJECTED,
@@ -119,8 +119,9 @@ class TestRejectionAlert:
 
         success = await notifier.send_rejection_alert(result, vendor_url="https://evil.xyz")
         assert success is True
-        payload = notifier._http.post.call_args.kwargs.get("json") or \
-            notifier._http.post.call_args[1].get("json")
+        payload = notifier._http.post.call_args.kwargs.get("json") or notifier._http.post.call_args[
+            1
+        ].get("json")
         assert "MALWARE" in payload["text"]
         assert "reply_markup" not in payload
 
@@ -130,9 +131,7 @@ class TestCallbackHandling:
     async def test_answer_callback(self) -> None:
         notifier = TelegramNotifier(bot_token="tok", chat_id="123")
         notifier._http = AsyncMock(spec=httpx.AsyncClient)
-        notifier._http.post = AsyncMock(return_value=MagicMock(
-            json=lambda: {"ok": True}
-        ))
+        notifier._http.post = AsyncMock(return_value=MagicMock(json=lambda: {"ok": True}))
 
         ok = await notifier.answer_callback("qid_123", "Done!")
         assert ok is True
@@ -142,17 +141,19 @@ class TestCallbackHandling:
     async def test_update_message(self) -> None:
         notifier = TelegramNotifier(bot_token="tok", chat_id="123")
         notifier._http = AsyncMock(spec=httpx.AsyncClient)
-        notifier._http.post = AsyncMock(return_value=MagicMock(
-            json=lambda: {"ok": True}
-        ))
+        notifier._http.post = AsyncMock(return_value=MagicMock(json=lambda: {"ok": True}))
 
         ok = await notifier.update_message(
-            chat_id=123, message_id=42,
-            payout_id="pout_x", action="approve", user_name="alice",
+            chat_id=123,
+            message_id=42,
+            payout_id="pout_x",
+            action="approve",
+            user_name="alice",
         )
         assert ok is True
-        payload = notifier._http.post.call_args.kwargs.get("json") or \
-            notifier._http.post.call_args[1].get("json")
+        payload = notifier._http.post.call_args.kwargs.get("json") or notifier._http.post.call_args[
+            1
+        ].get("json")
         assert "APPROVED" in payload["text"]
         assert payload["chat_id"] == 123
         assert payload["message_id"] == 42
@@ -163,17 +164,17 @@ class TestPing:
     async def test_ping_success(self) -> None:
         notifier = TelegramNotifier(bot_token="tok", chat_id="123")
         notifier._http = AsyncMock(spec=httpx.AsyncClient)
-        notifier._http.get = AsyncMock(return_value=MagicMock(
-            json=lambda: {"ok": True, "result": {"id": 1, "first_name": "Bot"}}
-        ))
+        notifier._http.get = AsyncMock(
+            return_value=MagicMock(
+                json=lambda: {"ok": True, "result": {"id": 1, "first_name": "Bot"}}
+            )
+        )
         assert await notifier.ping() is True
 
     async def test_ping_failure(self) -> None:
         notifier = TelegramNotifier(bot_token="bad", chat_id="123")
         notifier._http = AsyncMock(spec=httpx.AsyncClient)
-        notifier._http.get = AsyncMock(return_value=MagicMock(
-            json=lambda: {"ok": False}
-        ))
+        notifier._http.get = AsyncMock(return_value=MagicMock(json=lambda: {"ok": False}))
         assert await notifier.ping() is False
 
 
@@ -186,7 +187,9 @@ class TestNotifyWithFallbackTelegram:
 
         result = _result(decision=Decision.HELD)
         await notify_with_fallback(
-            None, None, result,
+            None,
+            None,
+            result,
             vendor_name="V",
             telegram_notifier=tg,
         )
@@ -201,7 +204,9 @@ class TestNotifyWithFallbackTelegram:
 
         result = _result(decision=Decision.HELD)
         await notify_with_fallback(
-            slack, None, result,
+            slack,
+            None,
+            result,
             vendor_name="V",
             telegram_notifier=tg,
         )
@@ -217,7 +222,9 @@ class TestNotifyWithFallbackTelegram:
             reason_code=ReasonCode.DOMAIN_BLOCKED,
         )
         await notify_with_fallback(
-            None, None, result,
+            None,
+            None,
+            result,
             telegram_notifier=tg,
         )
         tg.send_rejection_alert.assert_awaited_once()

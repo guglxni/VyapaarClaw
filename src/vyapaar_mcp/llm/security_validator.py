@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ToolCallRequest:
     """A tool call to be validated."""
+
     tool_name: str
     parameters: dict[str, Any]
     agent_id: str
@@ -32,6 +33,7 @@ class ToolCallRequest:
 @dataclass
 class ValidationResult:
     """Result of security LLM validation."""
+
     approved: bool
     reason: str
     risk_score: float  # 0-1
@@ -40,7 +42,7 @@ class ValidationResult:
 
 class SecurityLLMClient:
     """Isolated security LLM for Dual LLM quarantine pattern.
-    
+
     This LLM has NO access to conversation context - only validates
     tool calls against governance policies.
     """
@@ -76,11 +78,11 @@ class SecurityLLMClient:
         governance_policy: dict[str, Any],
     ) -> ValidationResult:
         """Validate a tool call using isolated security LLM.
-        
+
         Args:
             request: The tool call to validate
             governance_policy: Current governance rules (NOT conversation context)
-            
+
         Returns:
             Validation result with approve/deny decision
         """
@@ -103,7 +105,7 @@ class SecurityLLMClient:
         try:
             # Build isolated validation prompt (NO conversation context)
             prompt = self._build_validation_prompt(request, governance_policy)
-            
+
             response = await self._client.chat.completions.create(
                 model=self._config.security_llm_model,
                 messages=[
@@ -114,8 +116,8 @@ class SecurityLLMClient:
                             "Your job is to approve or deny tool calls based on "
                             "governance policies. You have NO access to conversation "
                             "context - only see tool name, parameters, and policy rules. "
-                            "Respond with JSON: {\"approved\": bool, \"reason\": str, "
-                            "\"risk_score\": float (0-1), \"mitigation\": str|null}"
+                            'Respond with JSON: {"approved": bool, "reason": str, '
+                            '"risk_score": float (0-1), "mitigation": str|null}'
                         ),
                     },
                     {"role": "user", "content": prompt},
@@ -130,7 +132,7 @@ class SecurityLLMClient:
 
             # Parse JSON response
             result = json.loads(content.strip())
-            
+
             # Log for audit
             if self._config.quarantine_audit_log:
                 logger.info(
@@ -211,7 +213,7 @@ Respond with JSON only."""
 
 class ToolCallValidator:
     """High-level validator that orchestrates Dual LLM checks.
-    
+
     This class manages context tainting and routes validation
     to the appropriate tier based on tool classification.
     """
@@ -254,7 +256,7 @@ class ToolCallValidator:
         governance_policy: dict[str, Any],
     ) -> ValidationResult:
         """Validate a tool call through appropriate tier.
-        
+
         Tiers:
         1. DENY when tainted: Critical tools blocked entirely
         2. DUAL LLM when tainted: Security LLM validation required
@@ -267,7 +269,10 @@ class ToolCallValidator:
             if tool_name in critical_tools:
                 return ValidationResult(
                     approved=False,
-                    reason=f"Tool '{tool_name}' is blocked when context is tainted (deterministic policy)",
+                    reason=(
+                        f"Tool '{tool_name}' is blocked when context "
+                        "is tainted (deterministic policy)"
+                    ),
                     risk_score=1.0,
                     mitigation="Refresh session or wait for taint clearance",
                 )

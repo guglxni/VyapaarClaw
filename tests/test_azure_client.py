@@ -14,8 +14,7 @@ Tests cover:
 
 from __future__ import annotations
 
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -24,7 +23,9 @@ from vyapaar_mcp.config import VyapaarConfig
 from vyapaar_mcp.llm.azure_client import AzureOpenAIClient
 
 # Shared mock request for httpx.Response construction
-_MOCK_REQUEST = httpx.Request("POST", "https://vyapaar.services.ai.azure.com/models/chat/completions")
+_MOCK_REQUEST = httpx.Request(
+    "POST", "https://vyapaar.services.ai.azure.com/models/chat/completions"
+)
 
 
 # ================================================================
@@ -223,7 +224,9 @@ class TestChatCompletionSuccess:
 
         mock_resp = httpx.Response(200, json=_mock_kimi_response("Test"), request=_MOCK_REQUEST)
 
-        with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_resp) as mock_post:
+        with patch.object(
+            client._client, "post", new_callable=AsyncMock, return_value=mock_resp
+        ) as mock_post:
             await client.chat_completion(
                 messages=[{"role": "user", "content": "Test"}],
                 temperature=0.1,
@@ -246,7 +249,9 @@ class TestChatCompletionSuccess:
 
         mock_resp = httpx.Response(200, json=_mock_kimi_response(), request=_MOCK_REQUEST)
 
-        with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_resp) as mock_post:
+        with patch.object(
+            client._client, "post", new_callable=AsyncMock, return_value=mock_resp
+        ) as mock_post:
             await client.chat_completion(
                 messages=[{"role": "user", "content": "Hi"}],
                 max_tokens=None,
@@ -329,7 +334,8 @@ class TestChatCompletionErrors:
         await client.initialize()
 
         with patch.object(
-            client._client, "post",
+            client._client,
+            "post",
             new_callable=AsyncMock,
             side_effect=httpx.TimeoutException("Connection timed out"),
         ):
@@ -408,7 +414,8 @@ class TestChatCompletionErrors:
         await client.initialize()
 
         with patch.object(
-            client._client, "post",
+            client._client,
+            "post",
             new_callable=AsyncMock,
             side_effect=RuntimeError("Something went wrong"),
         ):
@@ -436,7 +443,9 @@ class TestURLConstruction:
 
         mock_resp = httpx.Response(200, json=_mock_kimi_response(), request=_MOCK_REQUEST)
 
-        with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_resp) as mock_post:
+        with patch.object(
+            client._client, "post", new_callable=AsyncMock, return_value=mock_resp
+        ) as mock_post:
             await client.chat_completion(
                 messages=[{"role": "user", "content": "Hi"}],
             )
@@ -459,7 +468,9 @@ class TestURLConstruction:
 
         mock_resp = httpx.Response(200, json=_mock_kimi_response(), request=_MOCK_REQUEST)
 
-        with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_resp) as mock_post:
+        with patch.object(
+            client._client, "post", new_callable=AsyncMock, return_value=mock_resp
+        ) as mock_post:
             await client.chat_completion(
                 messages=[{"role": "user", "content": "Hi"}],
             )

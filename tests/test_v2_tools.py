@@ -8,13 +8,12 @@ evaluate_payout, list_agents).
 
 from __future__ import annotations
 
-from datetime import date, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import date
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from vyapaar_mcp.db.redis_client import RedisClient
-
 
 # ================================================================
 # Redis: get_historical_spend
@@ -189,9 +188,7 @@ class TestForecastCashFlow:
 
             mock_pg = MagicMock()
             mock_pg.list_all_agents = AsyncMock(return_value=[])
-            mock_pg.get_agent_policy = AsyncMock(
-                return_value=MagicMock(daily_limit=500000)
-            )
+            mock_pg.get_agent_policy = AsyncMock(return_value=MagicMock(daily_limit=500000))
             server._postgres = mock_pg
 
             await fake_redis.check_budget_atomic("agent-fc", 50000, 500000)
@@ -265,23 +262,25 @@ class TestGenerateComplianceReport:
 
         try:
             mock_pg = MagicMock()
-            mock_pg.get_compliance_stats = AsyncMock(return_value={
-                "period_days": 7,
-                "total_decisions": 20,
-                "decisions": {
-                    "APPROVED": {"count": 15, "total_amount": 750000},
-                    "REJECTED": {"count": 5, "total_amount": 250000},
-                },
-                "top_rejection_reasons": [
-                    {"reason": "LIMIT_EXCEEDED", "count": 3},
-                ],
-                "agent_breakdown": {
-                    "agent-A": {
-                        "APPROVED": {"count": 10, "total_amount": 500000},
+            mock_pg.get_compliance_stats = AsyncMock(
+                return_value={
+                    "period_days": 7,
+                    "total_decisions": 20,
+                    "decisions": {
+                        "APPROVED": {"count": 15, "total_amount": 750000},
                         "REJECTED": {"count": 5, "total_amount": 250000},
                     },
-                },
-            })
+                    "top_rejection_reasons": [
+                        {"reason": "LIMIT_EXCEEDED", "count": 3},
+                    ],
+                    "agent_breakdown": {
+                        "agent-A": {
+                            "APPROVED": {"count": 10, "total_amount": 500000},
+                            "REJECTED": {"count": 5, "total_amount": 250000},
+                        },
+                    },
+                }
+            )
             server._postgres = mock_pg
 
             result = await server.generate_compliance_report(period_days=7)
@@ -304,13 +303,15 @@ class TestGenerateComplianceReport:
 
         try:
             mock_pg = MagicMock()
-            mock_pg.get_compliance_stats = AsyncMock(return_value={
-                "period_days": 7,
-                "total_decisions": 0,
-                "decisions": {},
-                "top_rejection_reasons": [],
-                "agent_breakdown": {},
-            })
+            mock_pg.get_compliance_stats = AsyncMock(
+                return_value={
+                    "period_days": 7,
+                    "total_decisions": 0,
+                    "decisions": {},
+                    "top_rejection_reasons": [],
+                    "agent_breakdown": {},
+                }
+            )
             server._postgres = mock_pg
 
             result = await server.generate_compliance_report(period_days=7)
@@ -380,18 +381,20 @@ class TestListAgents:
         try:
             server._redis = fake_redis
             mock_pg = MagicMock()
-            mock_pg.list_all_agents = AsyncMock(return_value=[
-                {
-                    "agent_id": "agent-list-1",
-                    "daily_limit": 500000,
-                    "per_txn_limit": 100000,
-                    "require_approval_above": 50000,
-                    "allowed_domains": [],
-                    "blocked_domains": [],
-                    "created_at": "2026-01-01",
-                    "updated_at": "2026-01-01",
-                },
-            ])
+            mock_pg.list_all_agents = AsyncMock(
+                return_value=[
+                    {
+                        "agent_id": "agent-list-1",
+                        "daily_limit": 500000,
+                        "per_txn_limit": 100000,
+                        "require_approval_above": 50000,
+                        "allowed_domains": [],
+                        "blocked_domains": [],
+                        "created_at": "2026-01-01",
+                        "updated_at": "2026-01-01",
+                    },
+                ]
+            )
             server._postgres = mock_pg
 
             await fake_redis.check_budget_atomic("agent-list-1", 250000, 500000)
