@@ -41,13 +41,13 @@ archestra.skill
 .specstory/
 .cursorindexingignore
 
-# Agent skills (IDE-generated, NOT the VyapaarClaw skills)
-skills/api-security-best-practices/
-skills/async-python-patterns/
-skills/developing-with-streamlit/
-skills/find-skills/
-skills/security-review/
-skills/template-skill/
+# Agent skills — IDE-generated symlinks (NOT the VyapaarClaw skills in skills/cfo*)
+skills/api-security-best-practices
+skills/async-python-patterns
+skills/developing-with-streamlit
+skills/find-skills
+skills/security-review
+skills/template-skill
 
 # ============================================================
 # OS
