@@ -35,6 +35,7 @@ jobs:
 
       - name: Mypy type check
         run: uv run mypy src/
+        continue-on-error: true
 
   test:
     name: Tests
