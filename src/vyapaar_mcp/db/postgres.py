@@ -221,8 +221,10 @@ class PostgresClient:
         Returns decision counts, top rejection reasons, highest-risk
         agents, and per-agent breakdowns.
         """
+        from datetime import timedelta
+
         conditions: list[str] = ["created_at >= NOW() - $1::interval"]
-        params: list[Any] = [f"{period_days} days"]
+        params: list[Any] = [timedelta(days=period_days)]
         param_idx = 2
 
         if agent_id:
