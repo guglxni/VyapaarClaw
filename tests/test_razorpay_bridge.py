@@ -103,10 +103,11 @@ class TestBridgeInit:
 # ================================================================
 
 
-@_requires_go_binary
 @pytest.fixture
 def bridge(config: VyapaarConfig) -> RazorpayBridge:
-    """Create a bridge with test credentials."""
+    """Create a bridge with test credentials (skips if Go binary missing)."""
+    if not GO_BINARY_EXISTS:
+        pytest.skip(f"Go binary not found at {DEFAULT_BINARY_PATH}")
     return RazorpayBridge(
         key_id=config.razorpay_key_id,
         key_secret=config.razorpay_key_secret,
