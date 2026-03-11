@@ -1,6 +1,6 @@
 # Slack Human-in-the-Loop Setup Guide
 
-Vyapaar MCP uses Slack to request human approval for high-value payouts or flagged transactions. This guide walks you through creating a Slack App and obtaining the necessary credentials.
+VyapaarClaw uses Slack to request human approval for high-value payouts or flagged transactions. This guide walks you through creating a Slack App and obtaining the necessary credentials.
 
 ---
 
@@ -9,7 +9,7 @@ Vyapaar MCP uses Slack to request human approval for high-value payouts or flagg
 1.  Go to the [Slack API: Your Apps](https://api.slack.com/apps) page.
 2.  Click **"Create New App"**.
 3.  Choose **"From scratch"**.
-4.  **App Name**: `Vyapaar MCP`
+4.  **App Name**: `VyapaarClaw`
 5.  **Workspace**: Select the workspace where you want the alerts to appear.
 6.  Click **"Create App"**.
 
@@ -58,7 +58,7 @@ After installation, you will see a **"Bot User OAuth Token"** (starts with `xoxb
 
 To ensure the bot can post, you must invite it to the channel:
 1.  Go to your alerts channel (e.g., `#vyapaar-alerts`).
-2.  Type: `/invite @Vyapaar MCP`.
+2.  Type: `/invite @VyapaarClaw`.
 
 ---
 

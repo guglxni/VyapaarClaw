@@ -227,7 +227,7 @@ async def tail_mode(
 async def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Vyapaar MCP — Audit Dashboard",
+        description="VyapaarClaw — Audit Dashboard",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"

@@ -1,6 +1,15 @@
-"""Azure OpenAI Client for Microsoft AI Foundry integration.
+"""Azure AI Services Client for Kimi K2.5 integration.
 
-Reference: https://learn.microsoft.com/en-us/azure/ai-foundry/
+Connects to Azure AI Services (Models API) to access the Kimi K2.5 model
+for agent intelligence, governance copilot, and security validation.
+
+Kimi K2.5 is a reasoning model that returns:
+  - content: The final response
+  - reasoning_content: Chain-of-thought reasoning (internal)
+
+Endpoint: https://vyapaar.services.ai.azure.com/models
+Model: kimi-k2.5
+API Version: 2024-05-01-preview
 """
 
 from __future__ import annotations
@@ -8,7 +17,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from openai import AsyncAzureOpenAI
+import httpx
 
 from vyapaar_mcp.config import VyapaarConfig
 
@@ -16,39 +25,54 @@ logger = logging.getLogger(__name__)
 
 
 class AzureOpenAIClient:
-    """Azure OpenAI client for AI Foundry integration.
-    
-    Provides secure, policy-enforced LLM interactions through
-    Archestra's deterministic controls.
+    """Azure AI Services client for Kimi K2.5 integration.
+
+    Uses the Azure AI Inference REST API directly (not the Azure OpenAI SDK)
+    because Kimi K2.5 is served from Azure AI Services Models API, which
+    has a different URL structure than Azure OpenAI.
+
+    The endpoint format is:
+        POST {base_url}/chat/completions?api-version={version}
     """
 
     def __init__(self, config: VyapaarConfig) -> None:
         self._config = config
-        self._client: AsyncAzureOpenAI | None = None
+        self._client: httpx.AsyncClient | None = None
 
     @property
     def is_configured(self) -> bool:
-        """Check if Azure OpenAI is properly configured."""
+        """Check if Azure AI is properly configured."""
         return bool(
             self._config.azure_openai_endpoint
             and self._config.azure_openai_api_key
         )
 
+    @property
+    def model_id(self) -> str:
+        """Return the configured model ID."""
+        return self._config.azure_openai_deployment
+
     async def initialize(self) -> None:
-        """Initialize the Azure OpenAI client."""
+        """Initialize the HTTP client for Azure AI Services."""
         if not self.is_configured:
-            logger.warning("Azure OpenAI not configured - set VYAPAAR_AZURE_OPENAI_ENDPOINT and VYAPAAR_AZURE_OPENAI_API_KEY")
+            logger.warning(
+                "Azure AI not configured — set VYAPAAR_AZURE_OPENAI_ENDPOINT "
+                "and VYAPAAR_AZURE_OPENAI_API_KEY"
+            )
             return
 
-        self._client = AsyncAzureOpenAI(
-            azure_endpoint=self._config.azure_openai_endpoint,
-            api_key=self._config.azure_openai_api_key,
-            api_version=self._config.azure_openai_api_version,
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(120.0, connect=10.0),
+            headers={
+                "Content-Type": "application/json",
+                "api-key": self._config.azure_openai_api_key,
+            },
         )
         logger.info(
-            "Azure OpenAI client initialized: endpoint=%s, deployment=%s",
+            "Azure AI client initialized: endpoint=%s, model=%s, api_version=%s",
             self._config.azure_openai_endpoint,
             self._config.azure_openai_deployment,
+            self._config.azure_openai_api_version,
         )
 
     async def chat_completion(
@@ -57,74 +81,101 @@ class AzureOpenAIClient:
         temperature: float = 0.7,
         max_tokens: int | None = None,
     ) -> tuple[str | None, str]:
-        """Send a chat completion request to Azure OpenAI.
-        
+        """Send a chat completion request to Kimi K2.5 via Azure AI.
+
+        Kimi K2.5 is a reasoning model. Responses contain both:
+        - content: The final answer for the user
+        - reasoning_content: Internal chain-of-thought (logged but not returned)
+
         Args:
             messages: List of {"role": "user|assistant|system", "content": "..."}
             temperature: Sampling temperature (0-2)
-            max_tokens: Maximum tokens to generate
-            
+            max_tokens: Maximum tokens to generate (must be large enough for
+                       reasoning + completion — recommend ≥500)
+
         Returns:
             Tuple of (generated_text or None, status_message)
         """
         if not self._client:
-            return None, "Azure OpenAI not configured - set VYAPAAR_AZURE_OPENAI_ENDPOINT and VYAPAAR_AZURE_OPENAI_API_KEY"
+            return None, (
+                "Azure AI not configured — set VYAPAAR_AZURE_OPENAI_ENDPOINT "
+                "and VYAPAAR_AZURE_OPENAI_API_KEY"
+            )
+
+        # Build the REST API URL
+        base_url = self._config.azure_openai_endpoint.rstrip("/")
+        url = f"{base_url}/chat/completions"
+        params = {"api-version": self._config.azure_openai_api_version}
+
+        body: dict[str, Any] = {
+            "model": self._config.azure_openai_deployment,
+            "messages": messages,
+            "temperature": temperature,
+        }
+        if max_tokens is not None:
+            body["max_tokens"] = max_tokens
 
         try:
-            response = await self._client.chat.completions.create(
-                model=self._config.azure_openai_deployment,
-                messages=messages,  # type: ignore
-                temperature=temperature,
-                max_tokens=max_tokens,
+            response = await self._client.post(url, json=body, params=params)
+
+            if response.status_code == 401:
+                return None, "Authentication failed. Check VYAPAAR_AZURE_OPENAI_API_KEY."
+            if response.status_code == 404:
+                return None, (
+                    f"Model '{self._config.azure_openai_deployment}' not found "
+                    f"at endpoint. Check VYAPAAR_AZURE_OPENAI_ENDPOINT."
+                )
+            if response.status_code == 429:
+                return None, "Rate limited by Azure AI. Please retry after a moment."
+
+            response.raise_for_status()
+            data = response.json()
+
+            # Extract response from the choices
+            choices = data.get("choices", [])
+            if not choices:
+                return None, "Empty response from Kimi K2.5"
+
+            message = choices[0].get("message", {})
+            content = message.get("content")
+            reasoning = message.get("reasoning_content")
+
+            # Log usage info
+            usage = data.get("usage", {})
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+            logger.info(
+                "Kimi K2.5 response: tokens=%d→%d, reasoning=%s",
+                prompt_tokens,
+                completion_tokens,
+                "yes" if reasoning else "no",
             )
-            return response.choices[0].message.content, "success"
+
+            # Content can be None if reasoning consumed all tokens
+            if content is None and reasoning:
+                return None, (
+                    "Kimi K2.5 reasoning consumed all tokens — "
+                    "increase max_tokens (reasoning model needs overhead)"
+                )
+
+            return content, "success"
+
+        except httpx.TimeoutException:
+            logger.error("Kimi K2.5 request timed out")
+            return None, "Request timed out. Kimi K2.5 reasoning may need more time."
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "Azure AI HTTP error: %s %s",
+                e.response.status_code,
+                e.response.text[:200],
+            )
+            return None, f"Azure AI HTTP error: {e.response.status_code}"
         except Exception as e:
-            error_msg = str(e)
-            if "DeploymentNotFound" in error_msg:
-                return None, f"Azure deployment '{self._config.azure_openai_deployment}' not found. Create it in Azure AI Foundry (ai.azure.com)."
-            if "404" in error_msg:
-                return None, f"Azure endpoint error (404). Check VYAPAAR_AZURE_OPENAI_ENDPOINT and deployment name."
-            logger.error("Azure OpenAI API error: %s", e)
-            return None, f"Azure API error: {error_msg}"
-
-    async def validate_with_guardrails(self, content: str) -> tuple[bool, str]:
-        """Validate content against Azure AI Foundry guardrails.
-        
-        Per SPEC §17: Azure Content Safety integration for input validation.
-        
-        Implementation requires:
-        1. Azure Content Safety resource (separate from OpenAI)
-        2. Content Safety API key in config
-        3. API endpoint configuration
-        
-        Current behavior: Returns safe when guardrails disabled or pending implementation.
-        
-        Returns:
-            Tuple of (is_safe, reason)
-        """
-        if not self._config.azure_guardrails_enabled:
-            return True, "Guardrails disabled"
-
-        # TODO: Implement Azure Content Safety integration
-        # Required: azure_content_safety_endpoint, azure_content_safety_api_key
-        # API: https://learn.microsoft.com/en-us/azure/ai-services/content-safety/
-        if not self._config.azure_content_safety_endpoint:
-            logger.warning(
-                "Azure guardrails enabled but content safety not configured. "
-                "Set VYAPAAR_AZURE_CONTENT_SAFETY_ENDPOINT and VYAPAAR_AZURE_CONTENT_SAFETY_API_KEY"
-            )
-            # Fail-open: allow but log warning (security decision)
-            return True, "Guardrails pending configuration"
-
-        # Implementation would call:
-        # POST {azure_content_safety_endpoint}/contentsafety/text:analyze
-        # With categories: Hate, SelfHarm, Sexual, Violence
-        # Return False if any category with severity >= threshold
-        logger.warning("Azure guardrails check requested - full implementation pending")
-        return True, "Guardrails check pending full implementation"
+            logger.error("Azure AI API error: %s", e)
+            return None, f"Azure AI error: {e!s}"
 
     async def close(self) -> None:
-        """Close the client connection."""
+        """Close the HTTP client."""
         if self._client:
-            await self._client.close()
+            await self._client.aclose()
             self._client = None

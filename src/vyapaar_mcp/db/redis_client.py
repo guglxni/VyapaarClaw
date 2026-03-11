@@ -32,7 +32,8 @@ class RedisClient:
             decode_responses=True,
             socket_connect_timeout=5,
         )
-        logger.info("Redis connected: %s", self._url)
+        safe_url = self._url.split("@")[-1] if "@" in self._url else self._url
+        logger.info("Redis connected: %s", safe_url)
 
     async def disconnect(self) -> None:
         """Close Redis connection."""
@@ -129,6 +130,12 @@ return 1
         key = self._budget_key(agent_id)
         await self.client.decrby(key, amount)
         logger.info("Budget rollback for %s: -%d paise", agent_id, amount)
+
+    async def reset_daily_spend(self, agent_id: str) -> None:
+        """Reset daily spend counter for an agent (for demo/testing)."""
+        key = self._budget_key(agent_id)
+        await self.client.delete(key)
+        logger.info("Budget reset for %s", agent_id)
 
     # ================================================================
     # Rate Limiting (sliding window per CODE_REVIEW §5.2)
@@ -250,3 +257,51 @@ return {1, current + 1, window}
         """Cache Safe Browsing result (default 5 min TTL)."""
         key = self._reputation_key(url)
         await self.client.setex(key, ttl, json.dumps(result))
+
+    # ================================================================
+    # Spending Trends & Forecasting (VyapaarClaw v2)
+    # ================================================================
+
+    def _budget_key_for_date(self, agent_id: str, dt: date) -> str:
+        """Generate budget key for a specific date."""
+        return f"vyapaar:budget:{agent_id}:{dt.strftime('%Y%m%d')}"
+
+    async def get_historical_spend(
+        self, agent_id: str, days: int = 30
+    ) -> list[dict[str, Any]]:
+        """Get daily spend totals for an agent over the past N days.
+
+        Returns a list of {date, spend} dicts ordered oldest-first.
+        Days with no spend return 0.
+        """
+        from datetime import timedelta
+
+        today = date.today()
+        results = []
+
+        for offset in range(days - 1, -1, -1):
+            dt = today - timedelta(days=offset)
+            key = self._budget_key_for_date(agent_id, dt)
+            value = await self.client.get(key)
+            results.append({
+                "date": dt.isoformat(),
+                "spend": int(value) if value else 0,
+            })
+
+        return results
+
+    async def get_all_budget_keys_today(self) -> list[str]:
+        """Scan for all agent budget keys for today.
+
+        Returns agent IDs that have budget keys set today.
+        """
+        today = date.today().strftime("%Y%m%d")
+        pattern = f"vyapaar:budget:*:{today}"
+        agent_ids = []
+
+        async for key in self.client.scan_iter(match=pattern, count=100):
+            parts = key.split(":")
+            if len(parts) == 4:
+                agent_ids.append(parts[2])
+
+        return agent_ids

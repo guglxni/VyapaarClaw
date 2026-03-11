@@ -1,4 +1,4 @@
-"""Prometheus-compatible metrics for Vyapaar MCP.
+"""Prometheus-compatible metrics for VyapaarClaw.
 
 Exposes governance metrics in Prometheus text format at /metrics.
 Designed for Archestra observability integration.

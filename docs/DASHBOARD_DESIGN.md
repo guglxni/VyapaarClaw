@@ -1,4 +1,4 @@
-# Vyapaar MCP Dashboard Design Specification
+# VyapaarClaw Dashboard Design Specification
 
 ## Next.js + React Neo-Brutalist Dashboard
 
@@ -6,7 +6,7 @@
 
 ## 1. Executive Summary
 
-**Project:** Vyapaar MCP Dashboard  
+**Project:** VyapaarClaw Dashboard  
 **Type:** Interactive Web Application  
 **Tech Stack:** Next.js 14 (App Router), React 18, TypeScript, Tailwind CSS, Framer Motion  
 **Design Philosophy:** Neo-Brutalist - raw, bold, unapologetic  

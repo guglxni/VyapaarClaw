@@ -50,7 +50,7 @@ class VyapaarConfig(BaseSettings):
 
     # --- PostgreSQL ---
     postgres_dsn: str = Field(
-        description="PostgreSQL connection string for audit logs and policies (REQUIRED — no default)",
+        description="PostgreSQL connection string for audit logs/policies",
     )
 
     # --- Server ---
@@ -84,6 +84,16 @@ class VyapaarConfig(BaseSettings):
     slack_signing_secret: str = Field(
         default="",
         description="Slack Signing Secret for verifying interactive callbacks",
+    )
+
+    # --- Telegram (Human-in-the-Loop, alternative to Slack) ---
+    telegram_bot_token: str = Field(
+        default="",
+        description="Telegram Bot token from @BotFather",
+    )
+    telegram_chat_id: str = Field(
+        default="",
+        description="Telegram chat/group/channel ID for approval requests",
     )
 
     # --- Rate Limiting ---
@@ -145,32 +155,32 @@ class VyapaarConfig(BaseSettings):
     )
 
     # ============================================
-    # Microsoft Azure AI Foundry Configuration
+    # Azure AI Services — Kimi K2.5 Configuration
     # ============================================
-    # Azure AI Foundry is Microsoft's enterprise AI development platform.
-    # Archestra provides deterministic access policies as a proxy layer
-    # to protect against prompt injection attacks (lethal trifecta).
+    # Uses Azure AI Services (Models API) endpoint to access
+    # Kimi K2.5 for agent intelligence and governance copilot.
+    # Endpoint format: https://<resource>.services.ai.azure.com/models
 
-    # --- Azure OpenAI / AI Foundry ---
+    # --- Azure AI / Kimi K2.5 ---
     azure_openai_endpoint: str = Field(
-        default="",
-        description="Azure OpenAI endpoint (e.g., https://<resource>.openai.azure.com/)",
+        default="https://vyapaar.services.ai.azure.com/models",
+        description="Azure AI Services endpoint for model inference",
     )
     azure_openai_api_key: str = Field(
         default="",
-        description="Azure OpenAI API key from Azure Portal > Keys and Endpoint",
+        description="Azure AI API key from Azure Portal > Keys and Endpoint",
     )
     azure_openai_deployment: str = Field(
-        default="gpt-4o",
-        description="Azure OpenAI model deployment name",
+        default="kimi-k2.5",
+        description="Model ID / deployment name (e.g., kimi-k2.5)",
     )
     azure_foundry_project_id: str = Field(
         default="",
-        description="Azure AI Foundry Project ID for project-scoped resources",
+        description="Azure AI Foundry Project ID (optional)",
     )
     azure_openai_api_version: str = Field(
-        default="2024-10-21",
-        description="Azure OpenAI API version",
+        default="2024-05-01-preview",
+        description="Azure AI Services API version",
     )
 
     # --- Archestra Security Proxy (Deterministic Controls) ---
@@ -199,7 +209,7 @@ class VyapaarConfig(BaseSettings):
     # We recommend Archestra's deterministic controls for production.
     azure_guardrails_enabled: bool = Field(
         default=False,
-        description="Enable Azure Foundry guardrails (jailbreak, indirect prompt injection detection)",
+        description="Enable Azure guardrails (jailbreak, prompt injection)",
     )
     azure_guardrails_severity: int = Field(
         default=1,

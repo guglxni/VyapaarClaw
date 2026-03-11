@@ -143,7 +143,7 @@ class RazorpayActions:
             # Try SDK cancel method
             result: dict[str, object] = self._client.payout.cancel(  # type: ignore[attr-defined]
                 payout_id,
-                {"remarks": f"REJECTED by Vyapaar MCP: {reason}"},
+                {"remarks": f"REJECTED by VyapaarClaw: {reason}"},
             )
             return result
         except AttributeError:
@@ -157,7 +157,7 @@ class RazorpayActions:
                     "Authorization": f"Basic {auth_str}",
                     "Content-Type": "application/json",
                 },
-                json={"remarks": f"REJECTED by Vyapaar MCP: {reason}"},
+                json={"remarks": f"REJECTED by VyapaarClaw: {reason}"},
             )
             resp.raise_for_status()
             return resp.json()  # type: ignore[return-value]

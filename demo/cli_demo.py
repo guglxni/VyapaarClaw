@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Vyapaar MCP — Interactive Demo Script.
+"""VyapaarClaw — Interactive Demo Script.
 
 Demonstrates all 9 MCP tools through a realistic vendor payment lifecycle.
 Run: python demo/cli_demo.py

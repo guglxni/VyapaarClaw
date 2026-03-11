@@ -1,4 +1,4 @@
-# Vyapaar MCP — Agentic Financial Governance Server
+# VyapaarClaw — Agentic Financial Governance Server
 
 > **Codename:** "The CFO for the Agentic Economy"  
 > **Stack:** Python 3.12, UV, FastMCP, Go 1.25 (Sidecar), Razorpay X (Sandbox), Redis, Google Safe Browsing v4  
@@ -10,7 +10,7 @@
 
 ## 1. Executive Summary
 
-**Vyapaar MCP** is a *Governance-as-a-Service* MCP Server that acts as an autonomous financial firewall between AI Agents and the **Razorpay X** payments platform. It intercepts, validates, and audits every payout an agent attempts to make — enforcing budgets, checking vendor reputation, and keeping humans in the loop for high-value decisions.
+**VyapaarClaw** is a *Governance-as-a-Service* MCP Server that acts as an autonomous financial firewall between AI Agents and the **Razorpay X** payments platform. It intercepts, validates, and audits every payout an agent attempts to make — enforcing budgets, checking vendor reputation, and keeping humans in the loop for high-value decisions.
 
 ### Why This Matters
 
@@ -93,7 +93,7 @@ We're entering the era of autonomous AI agents executing real-world financial ta
 ### 3.2 The Governance Loop (Sequence)
 
 ```
- Agent (OpenClaw)          Razorpay X              Vyapaar MCP             Google Safe Browsing
+ Agent (OpenClaw)          Razorpay X              VyapaarClaw             Google Safe Browsing
        │                       │                        │                          │
        │  1. Create Payout     │                        │                          │
        │  (status: queued)     │                        │                          │
@@ -132,7 +132,7 @@ We're entering the era of autonomous AI agents executing real-world financial ta
 | **The Brain** | AI Agent initiating payouts | OpenClaw / Custom Agent |
 | **The Bank** | Payment execution & API | Razorpay X (Sandbox) |
 | **The Bridge** (New) | Native Razorpay API Integration | **Go MCP Sidecar** (subprocess) |
-| **The Guard** | Policy enforcement & governance | **Vyapaar MCP** (this project) |
+| **The Guard** | Policy enforcement & governance | **VyapaarClaw** (this project) |
 | **The Platform** | MCP orchestration, secrets, observability | Archestra |
 | **The Memory** | Atomic budget counters, idempotency keys | Redis |
 | **The Ledger** | Audit logs, agent policies | PostgreSQL |
@@ -387,7 +387,7 @@ Authorization: Basic <base64(key_id:key_secret)>
 Content-Type: application/json
 
 {
-  "remarks": "REJECTED by Vyapaar MCP: RISK_HIGH — Google Safe Browsing flagged MALWARE"
+  "remarks": "REJECTED by VyapaarClaw: RISK_HIGH — Google Safe Browsing flagged MALWARE"
 }
 ```
 
@@ -403,7 +403,7 @@ Content-Type: application/json
 ```json
 {
   "client": {
-    "clientId": "vyapaar-mcp",
+    "clientId": "vyapaarclaw",
     "clientVersion": "3.0.0"
   },
   "threatInfo": {
@@ -516,7 +516,7 @@ CREATE INDEX idx_audit_created ON audit_logs(created_at);
 ## 10. Project Structure
 
 ```
-vyapaar-mcp/
+vyapaarclaw/
 ├── SPEC.md                       # This file — project specification
 ├── README.md                     # Project overview + setup guide
 ├── pyproject.toml                # UV/pip project config + dependencies
@@ -580,7 +580,7 @@ vyapaar-mcp/
 ## 11. Implementation Plan (Phased)
 
 ### Phase 1: Scaffolding & Configuration (Day 1)
-- [ ] Initialize project: `uv init vyapaar-mcp && cd vyapaar-mcp`
+- [ ] Initialize project: `uv init vyapaarclaw && cd vyapaarclaw`
 - [ ] Create `pyproject.toml` with all dependencies (see §5)
 - [ ] Create `src/config.py` using `pydantic-settings`:
   ```python
@@ -714,7 +714,7 @@ vyapaar-mcp/
 ### `.env.example`
 ```bash
 # ============================================
-# Vyapaar MCP — Environment Configuration
+# VyapaarClaw — Environment Configuration
 # ============================================
 
 # --- Razorpay X (Sandbox) ---
@@ -919,7 +919,7 @@ uv run mypy --strict src/
 ```yaml
 version: "1.0"
 server:
-  name: "vyapaar-mcp"
+  name: "vyapaarclaw"
   description: "Financial Governance MCP Server — Razorpay X + Google Safe Browsing"
   transport:
     type: "sse"

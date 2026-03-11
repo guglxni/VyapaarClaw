@@ -1,6 +1,6 @@
 # 🎬 2 Fast 2 MCP — Demo Flow
 
-**Project:** Vyapaar MCP — Agentic Financial Governance Server  
+**Project:** VyapaarClaw — Agentic Financial Governance Server  
 **Duration:** 3 minutes  
 **Target:** Judges at WeMakeDevs 2 Fast 2 MCP Hackathon
 
@@ -8,9 +8,9 @@
 
 ## 📺 Demo Overview
 
-> *"Every AI agent needs a CFO. Meet Vyapaar MCP — the financial governance layer that keeps your agents from blowing company money."*
+> *"Every AI agent needs a CFO. Meet VyapaarClaw — the financial governance layer that keeps your agents from blowing company money."*
 
-**The Hook:** Show how Vyapaar MCP protects against 6 different financial risks in real AI agent workflows.
+**The Hook:** Show how VyapaarClaw protects against 6 different financial risks in real AI agent workflows.
 
 ---
 
@@ -225,7 +225,7 @@ Rule: .xyz domains prohibited
 **[2:30 - 3:00]**
 
 ```
-Narrator: "Vyapaar MCP — The CFO for the Agentic Economy."
+Narrator: "VyapaarClaw — The CFO for the Agentic Economy."
 
 🔒 6 Security Layers:
   1. Safe Browsing API — Blocks malware sites
@@ -248,7 +248,7 @@ Narrator: "Vyapaar MCP — The CFO for the Agentic Economy."
   • Archestra Platform (production)
   • Custom MCP clients
 
-GitHub: github.com/guglxni/vyapaar-mcp
+GitHub: github.com/guglxni/vyapaarclaw
 ```
 
 ---

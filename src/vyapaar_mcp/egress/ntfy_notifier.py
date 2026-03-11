@@ -243,13 +243,14 @@ async def notify_with_fallback(
     result: GovernanceResult,
     vendor_name: str | None = None,
     vendor_url: str | None = None,
+    telegram_notifier: Any | None = None,
 ) -> None:
-    """Send notification via Slack, falling back to ntfy on failure.
+    """Send notification via Slack / Telegram, falling back to ntfy.
 
     Routing logic:
-    1. If Slack is available → try Slack first
-    2. If Slack fails (or circuit open) → fall back to ntfy
-    3. If neither is available → log warning
+    1. Try Slack first (if configured)
+    2. Try Telegram (if configured and Slack didn't send)
+    3. Fall back to ntfy (if neither sent)
 
     APPROVED decisions are silent regardless of notification channel.
     """
@@ -258,50 +259,71 @@ async def notify_with_fallback(
     if result.decision == Decision.APPROVED:
         return
 
-    slack_sent = False
-    ntfy_sent = False
+    sent = False
+    alert_reasons = {
+        ReasonCode.RISK_HIGH, ReasonCode.DOMAIN_BLOCKED,
+        ReasonCode.LIMIT_EXCEEDED, ReasonCode.NO_POLICY,
+    }
 
-    # --- Try Slack first ---
-    if slack_notifier is not None:
+    # --- Try Slack ---
+    if not sent and slack_notifier is not None:
         try:
             if result.decision == Decision.HELD:
-                slack_sent = await slack_notifier.request_approval(
+                sent = await slack_notifier.request_approval(
                     result, vendor_name=vendor_name, vendor_url=vendor_url,
                 )
             elif result.decision == Decision.REJECTED:
-                alert_reasons = {
-                    ReasonCode.RISK_HIGH, ReasonCode.DOMAIN_BLOCKED,
-                    ReasonCode.LIMIT_EXCEEDED, ReasonCode.NO_POLICY,
-                }
                 if result.reason_code in alert_reasons:
-                    slack_sent = await slack_notifier.send_rejection_alert(
+                    sent = await slack_notifier.send_rejection_alert(
                         result, vendor_name=vendor_name, vendor_url=vendor_url,
                     )
                 else:
-                    slack_sent = True  # Not a notifiable rejection
-
-            metrics.record_slack_notification(success=slack_sent)
+                    sent = True
+            metrics.record_slack_notification(success=sent)
         except Exception as e:
             metrics.record_slack_notification(success=False)
-            logger.warning("Slack notification failed, trying ntfy fallback: %s", e)
-            slack_sent = False
+            logger.warning("Slack notification failed: %s", e)
+            sent = False
+
+    # --- Try Telegram ---
+    if not sent and telegram_notifier is not None:
+        try:
+            if result.decision == Decision.HELD:
+                sent = await telegram_notifier.request_approval(
+                    result, vendor_name=vendor_name, vendor_url=vendor_url,
+                )
+            elif result.decision == Decision.REJECTED:
+                if result.reason_code in alert_reasons:
+                    sent = await telegram_notifier.send_rejection_alert(
+                        result, vendor_name=vendor_name, vendor_url=vendor_url,
+                    )
+                else:
+                    sent = True
+            if sent:
+                logger.info("Telegram notification sent for %s", result.payout_id)
+        except Exception as e:
+            logger.warning("Telegram notification failed: %s", e)
+            sent = False
 
     # --- Fallback to ntfy ---
-    if not slack_sent and ntfy_notifier is not None:
+    if not sent and ntfy_notifier is not None:
         try:
             ntfy_sent = await ntfy_notifier.send_governance_notification(
                 result, vendor_name=vendor_name, vendor_url=vendor_url,
             )
             if ntfy_sent:
-                logger.info("ntfy fallback notification sent for %s", result.payout_id)
+                sent = True
+                logger.info("ntfy fallback sent for %s", result.payout_id)
         except Exception as e:
             logger.error("ntfy fallback also failed: %s", e)
 
-    if not slack_sent and not ntfy_sent:
-        if slack_notifier is None and ntfy_notifier is None:
-            # No notification channels configured — not an error
-            pass
-        else:
+    if not sent:
+        has_any = (
+            slack_notifier is not None
+            or telegram_notifier is not None
+            or ntfy_notifier is not None
+        )
+        if has_any:
             logger.warning(
                 "All notification channels failed for payout %s (decision=%s)",
                 result.payout_id,

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Vyapaar MCP Server - Launch Script
+# VyapaarClaw Server - Launch Script
 # Usage: ./scripts/start_server.sh [sse|stdio]
 
 set -e
@@ -10,11 +10,11 @@ cd "$(dirname "$0")/.."
 TRANSPORT="${1:-sse}"
 
 if [ "$TRANSPORT" = "sse" ]; then
-    echo "🚀 Starting Vyapaar MCP Server (SSE mode on localhost:8000)"
+    echo "🚀 Starting VyapaarClaw Server (SSE mode on localhost:8000)"
     echo "   Dashboard: http://localhost:8000"
     echo ""
 elif [ "$TRANSPORT" = "stdio" ]; then
-    echo "🚀 Starting Vyapaar MCP Server (stdio mode)"
+    echo "🚀 Starting VyapaarClaw Server (stdio mode)"
     echo ""
 else
     echo "Usage: $0 [sse|stdio]"

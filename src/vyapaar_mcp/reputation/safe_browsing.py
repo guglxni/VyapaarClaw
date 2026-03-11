@@ -33,7 +33,7 @@ THREAT_TYPES = [
     "POTENTIALLY_HARMFUL_APPLICATION",
 ]
 
-CLIENT_ID = "vyapaar-mcp"
+CLIENT_ID = "vyapaarclaw"
 CLIENT_VERSION = "1.0"
 
 

@@ -6,12 +6,15 @@ __pycache__/
 *$py.class
 *.egg-info/
 build/
-dist/
 .venv/
 env/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+.benchmarks/
+.hypothesis/
+.coverage
+htmlcov/
 
 # ============================================================
 # Environment & Secrets
@@ -33,9 +36,18 @@ env/
 .qwen/
 .gemini/
 .antigravity/
-skills/
 archestra/
 archestra.skill
+.specstory/
+.cursorindexingignore
+
+# Agent skills (IDE-generated, NOT the VyapaarClaw skills)
+skills/api-security-best-practices/
+skills/async-python-patterns/
+skills/developing-with-streamlit/
+skills/find-skills/
+skills/security-review/
+skills/template-skill/
 
 # ============================================================
 # OS
@@ -44,26 +56,44 @@ archestra.skill
 Thumbs.db
 
 # ============================================================
-# Project: Vendor & Build Artifacts
+# Build & Vendor Artifacts
 # ============================================================
-
-# Vendor (cloned third-party repos — reference only)
 vendor/
-
-# FOSS reference repos (cloned for implementation reference)
 .reference/
-
-# Compiled binaries (built from vendor/razorpay-mcp-server)
 bin/
-
-# Generated artifacts
 repomix-output.xml
 
+# Old/superseded dashboards
+vyapaar-dashboard/
+.streamlit/
+
 # ============================================================
-# Project: Runtime Data
+# Runtime Data & Logs
 # ============================================================
 audit_logs/
 *.db
+*.sqlite
+*.sqlite3
 *.log
 out.txt
-vyapaar-dashboard/
+*.tmp
+openclaw.json.tmp
+
+# ============================================================
+# Secrets & Env Variants
+# ============================================================
+.env.development
+.env.test
+.env.production
+.env.staging
+
+# ============================================================
+# Node.js (VyapaarClaw CLI + Web UI)
+# ============================================================
+node_modules/
+dist/
+*.tsbuildinfo
+pnpm-lock.yaml
+apps/web/.next/
+apps/web/node_modules/
+OPENCLAW_PREP_CHECKPOINT.md

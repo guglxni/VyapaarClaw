@@ -1,4 +1,4 @@
-# Dashboard Code Review — Vyapaar MCP
+# Dashboard Code Review — VyapaarClaw
 
 **Reviewed:** `demo/dashboard.py`  
 **Reviewer:** Streamlit Best Practices (agent-skills)  

@@ -1,4 +1,4 @@
-# Vyapaar MCP - Comprehensive Code Review
+# VyapaarClaw - Comprehensive Code Review
 
 > *Internal prototype record*
 
@@ -12,7 +12,7 @@
 
 ## Executive Summary
 
-This review applies three industry-standard FOSS code review skills to the Vyapaar MCP financial governance codebase. The result confirms that the codebase meets or exceeds production-grade standards across all reviewed dimensions.
+This review applies three industry-standard FOSS code review skills to the VyapaarClaw financial governance codebase. The result confirms that the codebase meets or exceeds production-grade standards across all reviewed dimensions.
 
 | Skill Applied | Focus Area | Result |
 |--------------|------------|--------|
@@ -389,7 +389,7 @@ Consider adding architecture diagram for:
 
 ### Certification: **APPROVED FOR PRODUCTION DEPLOYMENT**
 
-The Vyapaar MCP v5.1.0 codebase demonstrates:
+The VyapaarClaw v5.1.0 codebase demonstrates:
 1. **Senior engineering** in financial system design
 2. **Security-first mindset** with fail-closed principles
 3. **Production readiness** via comprehensive testing and observability
@@ -401,4 +401,4 @@ The Vyapaar MCP v5.1.0 codebase demonstrates:
 
 ---
 
-*"If you can't explain it simply, you don't understand it well enough."* — The Vyapaar MCP codebase explains itself through clean architecture, comprehensive tests, and thoughtful documentation.
+*"If you can't explain it simply, you don't understand it well enough."* — The VyapaarClaw codebase explains itself through clean architecture, comprehensive tests, and thoughtful documentation.

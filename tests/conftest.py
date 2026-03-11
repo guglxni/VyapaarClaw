@@ -1,4 +1,4 @@
-"""Shared test fixtures for Vyapaar MCP test suite."""
+"""Shared test fixtures for VyapaarClaw test suite."""
 
 from __future__ import annotations
 
@@ -79,6 +79,12 @@ def mock_postgres() -> MagicMock:
     mock.ping = AsyncMock(return_value=True)
 
     return mock
+
+
+@pytest.fixture
+def fake_postgres(mock_postgres: MagicMock) -> MagicMock:
+    """Alias for mock_postgres — used in governance smoke tests."""
+    return mock_postgres
 
 
 # ================================================================

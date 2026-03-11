@@ -1,0 +1,368 @@
+import * as p from "@clack/prompts";
+import chalk from "chalk";
+import { execSync, spawn, type ChildProcess } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+
+const PROFILE = "vyapaar";
+const WORKSPACE_ROOT = join(homedir(), ".openclaw", "profiles", PROFILE);
+const WORKSPACE_DIR = join(WORKSPACE_ROOT, "workspace");
+const SKILLS_DIR = join(WORKSPACE_DIR, "skills", "cfo");
+const DELEGATION_SKILLS_DIR = join(WORKSPACE_DIR, "skills", "cfo-delegation");
+const CANVAS_SKILLS_DIR = join(WORKSPACE_DIR, "skills", "cfo-canvas");
+const CONFIG_PATH = join(WORKSPACE_ROOT, "openclaw.json");
+const ENV_PATH = join(WORKSPACE_ROOT, ".env");
+const TEMPLATE_DIR = resolve(import.meta.dirname ?? ".", "..", "templates");
+
+function checkBinary(name: string): boolean {
+  try {
+    execSync(`which ${name}`, { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function checkPythonVersion(): string | null {
+  try {
+    const out = execSync("python3 --version", { encoding: "utf-8" }).trim();
+    const match = out.match(/(\d+)\.(\d+)/);
+    if (match) {
+      const [, major, minor] = match;
+      if (Number(major) >= 3 && Number(minor) >= 12) return out;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function runBootstrap(): Promise<void> {
+  p.intro(chalk.bold.yellow("VyapaarClaw") + chalk.dim(" — AI CFO Setup"));
+
+  // --- Prerequisite checks ---
+  const s = p.spinner();
+
+  s.start("Checking prerequisites");
+
+  const pythonOk = checkPythonVersion();
+  const uvOk = checkBinary("uv");
+  const openclawOk = checkBinary("openclaw");
+  const redisOk = checkBinary("redis-cli");
+
+  s.stop("Prerequisites checked");
+
+  if (!pythonOk) {
+    p.log.error("Python 3.12+ is required. Install: https://python.org");
+    process.exit(1);
+  }
+  p.log.success(`Python: ${pythonOk}`);
+
+  if (!uvOk) {
+    p.log.error(
+      "uv is required. Install: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    );
+    process.exit(1);
+  }
+  p.log.success("uv: installed");
+
+  if (!openclawOk) {
+    p.log.warn(
+      "openclaw not found. Install: npm install -g openclaw@latest"
+    );
+    p.log.info("Continuing without OpenClaw — MCP server will work standalone.");
+  } else {
+    p.log.success("openclaw: installed");
+  }
+
+  if (!redisOk) {
+    p.log.warn("redis-cli not found. Redis is required for budget tracking.");
+  }
+
+  // --- Credentials ---
+  const credentials = await p.group(
+    {
+      razorpay_key_id: () =>
+        p.text({
+          message: "Razorpay Key ID",
+          placeholder: "rzp_test_xxxxxxxxxxxx",
+          validate: (v) => (v.length < 5 ? "Invalid key ID" : undefined),
+        }),
+      razorpay_key_secret: () =>
+        p.password({
+          message: "Razorpay Key Secret",
+          validate: (v) => (v.length < 5 ? "Invalid key secret" : undefined),
+        }),
+      google_safe_browsing_key: () =>
+        p.text({
+          message: "Google Safe Browsing API Key",
+          placeholder: "AIzaSy...",
+          validate: (v) => (v.length < 5 ? "Invalid API key" : undefined),
+        }),
+      postgres_dsn: () =>
+        p.text({
+          message: "PostgreSQL DSN",
+          placeholder: "postgresql://vyapaar:pass@localhost:5432/vyapaar_db",
+          initialValue: "postgresql://vyapaar:securepass@localhost:5432/vyapaar_db",
+        }),
+      redis_url: () =>
+        p.text({
+          message: "Redis URL",
+          placeholder: "redis://localhost:6379/0",
+          initialValue: "redis://localhost:6379/0",
+        }),
+      telegram_token: () =>
+        p.text({
+          message: "Telegram Bot Token (optional, for HITL approvals)",
+          placeholder: "Leave empty to skip",
+          initialValue: "",
+        }),
+      telegram_chat_id: () =>
+        p.text({
+          message: "Telegram Chat ID (optional)",
+          placeholder: "Leave empty to skip",
+          initialValue: "",
+        }),
+      hooks_token: () =>
+        p.text({
+          message: "Webhook auth token (for Razorpay → OpenClaw hooks, optional)",
+          placeholder: "Leave empty to auto-generate",
+          initialValue: "",
+        }),
+    },
+    {
+      onCancel: () => {
+        p.cancel("Setup cancelled.");
+        process.exit(0);
+      },
+    }
+  );
+
+  // --- Create workspace ---
+  s.start("Creating VyapaarClaw workspace");
+
+  mkdirSync(WORKSPACE_DIR, { recursive: true });
+  mkdirSync(SKILLS_DIR, { recursive: true });
+  mkdirSync(DELEGATION_SKILLS_DIR, { recursive: true });
+  mkdirSync(CANVAS_SKILLS_DIR, { recursive: true });
+
+  const hooksToken =
+    credentials.hooks_token ||
+    `vc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+
+  // Write .env
+  const envContent = [
+    "# VyapaarClaw — Generated by bootstrap",
+    `VYAPAAR_RAZORPAY_KEY_ID=${credentials.razorpay_key_id}`,
+    `VYAPAAR_RAZORPAY_KEY_SECRET=${credentials.razorpay_key_secret}`,
+    `VYAPAAR_GOOGLE_SAFE_BROWSING_KEY=${credentials.google_safe_browsing_key}`,
+    `VYAPAAR_POSTGRES_DSN=${credentials.postgres_dsn}`,
+    `VYAPAAR_REDIS_URL=${credentials.redis_url}`,
+    `VYAPAAR_HOST=0.0.0.0`,
+    `VYAPAAR_PORT=8000`,
+    `VYAPAAR_DEV_MODE=true`,
+    "",
+    credentials.telegram_token
+      ? `VYAPAAR_TELEGRAM_BOT_TOKEN=${credentials.telegram_token}`
+      : "# VYAPAAR_TELEGRAM_BOT_TOKEN=",
+    credentials.telegram_chat_id
+      ? `VYAPAAR_TELEGRAM_CHAT_ID=${credentials.telegram_chat_id}`
+      : "# VYAPAAR_TELEGRAM_CHAT_ID=",
+    "",
+    credentials.telegram_token
+      ? `TELEGRAM_BOT_TOKEN=${credentials.telegram_token}`
+      : "# TELEGRAM_BOT_TOKEN=",
+    "",
+    `# Webhook hooks token for Razorpay -> OpenClaw`,
+    `VYAPAAR_HOOKS_TOKEN=${hooksToken}`,
+  ].join("\n");
+
+  writeFileSync(ENV_PATH, envContent);
+
+  // Copy templates
+  const templateFiles = ["AGENTS.md", "SOUL.md"];
+  for (const file of templateFiles) {
+    const src = join(TEMPLATE_DIR, file);
+    const dst = join(WORKSPACE_DIR, file);
+    if (existsSync(src)) {
+      writeFileSync(dst, readFileSync(src, "utf-8"));
+    }
+  }
+
+  // Copy all skills
+  const skillsToCopy = [
+    { src: ["skills", "cfo", "SKILL.md"], dst: join(SKILLS_DIR, "SKILL.md") },
+    {
+      src: ["skills", "cfo-delegation", "SKILL.md"],
+      dst: join(DELEGATION_SKILLS_DIR, "SKILL.md"),
+    },
+    {
+      src: ["skills", "cfo-canvas", "SKILL.md"],
+      dst: join(CANVAS_SKILLS_DIR, "SKILL.md"),
+    },
+  ];
+  const projectRoot = resolve(import.meta.dirname ?? ".", "..");
+  for (const { src, dst } of skillsToCopy) {
+    const srcPath = join(projectRoot, ...src);
+    if (existsSync(srcPath)) {
+      writeFileSync(dst, readFileSync(srcPath, "utf-8"));
+    }
+  }
+
+  // Write OpenClaw config with cron, hooks, and sub-agent support
+  const openclawConfig: Record<string, unknown> = {
+    agents: {
+      defaults: {
+        model: { primary: "azure/kimi-k2.5", fallbacks: ["openai/gpt-4o"] },
+        workspace: WORKSPACE_DIR,
+      },
+    },
+    channels: {
+      telegram: credentials.telegram_token
+        ? {
+            enabled: true,
+            botToken: `\${TELEGRAM_BOT_TOKEN}`,
+            dmPolicy: "pairing",
+          }
+        : { enabled: false },
+    },
+    cron: {
+      enabled: true,
+      maxConcurrentRuns: 2,
+      jobs: [
+        {
+          name: "VyapaarClaw Morning Brief",
+          schedule: "30 1 * * *",
+          session: "isolated",
+          message:
+            "Run the morning financial brief: call list_agents to check all budgets, " +
+            "generate_compliance_report for yesterday (period_days=1), " +
+            "forecast_cash_flow for each agent showing yellow or red health. " +
+            "Deliver a concise summary to Telegram.",
+          announce: true,
+          channel: "telegram",
+        },
+        {
+          name: "VyapaarClaw Budget Alarm",
+          schedule: "*/30 * * * *",
+          session: "isolated",
+          message:
+            "Budget alarm check: call list_agents and check for any agent with " +
+            "utilisation_pct > 80. For critical agents, call forecast_cash_flow. " +
+            "Alert via Telegram if any agent is critical. If all green, do nothing.",
+          announce: false,
+          channel: "telegram",
+        },
+        {
+          name: "VyapaarClaw Weekly Compliance",
+          schedule: "30 3 * * 1",
+          session: "isolated",
+          message:
+            "Generate the weekly compliance report: call generate_compliance_report(period_days=7) " +
+            "and list_agents. For high-risk agents, get spending trends. " +
+            "Compose a comprehensive governance report. Deliver to Telegram.",
+          announce: true,
+          channel: "telegram",
+        },
+      ],
+    },
+    hooks: {
+      enabled: true,
+      token: `\${VYAPAAR_HOOKS_TOKEN}`,
+      path: "/hooks",
+      defaultSessionKey: "hook:razorpay",
+      mappings: [
+        {
+          match: { path: "razorpay" },
+          action: "agent",
+          agentId: "main",
+          deliver: true,
+          channel: "telegram",
+        },
+      ],
+    },
+    skills: {
+      entries: {
+        "vyapaarclaw-cfo": { enabled: true },
+        "vyapaarclaw-cfo-delegation": { enabled: true },
+        "vyapaarclaw-cfo-canvas": { enabled: true },
+      },
+    },
+    sessions: {
+      spawn: {
+        enabled: true,
+        maxConcurrent: 3,
+        defaults: { model: "openai/gpt-4o-mini", timeout: 120 },
+      },
+    },
+    tools: {
+      mcpServers: {
+        "vyapaarclaw": {
+          url: "http://localhost:8000/sse",
+        },
+      },
+    },
+  };
+
+  writeFileSync(CONFIG_PATH, JSON.stringify(openclawConfig, null, 2));
+
+  s.stop("Workspace created");
+
+  p.log.info(`Workspace: ${chalk.cyan(WORKSPACE_DIR)}`);
+  p.log.info(`Config:    ${chalk.cyan(CONFIG_PATH)}`);
+  p.log.info(`Env:       ${chalk.cyan(ENV_PATH)}`);
+
+  // --- Install Python MCP server ---
+  s.start("Installing VyapaarClaw Python package");
+
+  try {
+    execSync("uv pip install -e .", {
+      cwd: resolve(import.meta.dirname ?? ".", ".."),
+      stdio: "pipe",
+      env: { ...process.env, VIRTUAL_ENV: "" },
+    });
+    s.stop("VyapaarClaw installed");
+  } catch {
+    s.stop("Skipping Python install (install manually: uv pip install -e .)");
+  }
+
+  // --- Summary ---
+  const webhookUrl = `http://localhost:18789/hooks/razorpay?token=${hooksToken}`;
+
+  p.note(
+    [
+      `${chalk.bold("Start the MCP server:")}`,
+      `  VYAPAAR_TRANSPORT=sse uv run vyapaarclaw`,
+      "",
+      `${chalk.bold("Start OpenClaw with VyapaarClaw profile:")}`,
+      `  openclaw --profile ${PROFILE} gateway`,
+      "",
+      `${chalk.bold("Or use the convenience command:")}`,
+      `  vyapaarclaw start`,
+      "",
+      `${chalk.bold("Talk to your AI CFO via Telegram, Slack, or WhatsApp.")}`,
+    ].join("\n"),
+    "Next Steps"
+  );
+
+  p.note(
+    [
+      `${chalk.bold("Cron Jobs (configured automatically):")}`,
+      `  Morning Brief:       daily at 7:00 AM IST`,
+      `  Budget Alarm:        every 30 minutes`,
+      `  Weekly Compliance:   Monday at 9:00 AM IST`,
+      "",
+      `${chalk.bold("Razorpay Webhook URL:")}`,
+      `  ${chalk.cyan(webhookUrl)}`,
+      `  Set this in Razorpay Dashboard → Webhooks → Add New Webhook`,
+      `  Select events: payout.queued, payout.processed, payout.rejected`,
+    ].join("\n"),
+    "Automation"
+  );
+
+  p.outro(
+    chalk.green.bold("VyapaarClaw is ready.") +
+      chalk.dim(" The AI CFO is standing by.")
+  );
+}

@@ -362,7 +362,7 @@ class SlackNotifier:
                     {
                         "type": "mrkdwn",
                         "text": (
-                            "⚖️ *Vyapaar MCP* — Agentic Financial Governance | "
+                            "⚖️ *VyapaarClaw* — Agentic Financial Governance | "
                             f"Processing: {result.processing_ms}ms"
                         ),
                     },
@@ -441,7 +441,7 @@ class SlackNotifier:
                     {
                         "type": "mrkdwn",
                         "text": (
-                            "⚖️ *Vyapaar MCP* — Agentic Financial Governance | "
+                            "⚖️ *VyapaarClaw* — Agentic Financial Governance | "
                             f"Processing: {result.processing_ms}ms"
                         ),
                     },

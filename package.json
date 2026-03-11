@@ -1,0 +1,82 @@
+{
+  "name": "vyapaarclaw",
+  "version": "0.1.0",
+  "description": "Fully Managed OpenClaw Framework for AI Financial Governance. The AI CFO for the agentic economy.",
+  "keywords": [
+    "openclaw",
+    "ai-cfo",
+    "financial-governance",
+    "mcp",
+    "razorpay",
+    "agentic",
+    "fintech"
+  ],
+  "homepage": "https://github.com/guglxni/VyapaarClaw#readme",
+  "bugs": {
+    "url": "https://github.com/guglxni/VyapaarClaw/issues"
+  },
+  "license": "AGPL-3.0-only",
+  "author": "Aaryan Guglani <aaryanguglani.cs21@rvce.edu.in>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/guglxni/VyapaarClaw.git"
+  },
+  "bin": {
+    "vyapaarclaw": "vyapaarclaw.mjs"
+  },
+  "files": [
+    "apps/web/.next/standalone/",
+    "apps/web/.next/static/",
+    "apps/web/public/",
+    "dist/",
+    "skills/",
+    "templates/",
+    "LICENSE",
+    "vyapaarclaw.mjs",
+    "README.md"
+  ],
+  "type": "module",
+  "main": "dist/entry.js",
+  "exports": {
+    ".": "./dist/entry.js",
+    "./cli-entry": "./vyapaarclaw.mjs"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "web:dev": "pnpm --dir apps/web dev",
+    "web:build": "pnpm --dir apps/web build",
+    "web:install": "pnpm --dir apps/web install",
+    "dev": "node vyapaarclaw.mjs",
+    "start": "node vyapaarclaw.mjs start",
+    "vyapaarclaw": "node vyapaarclaw.mjs",
+    "test": "vitest run",
+    "test:py": "uv run pytest tests/ --ignore=tests/test_razorpay_bridge.py",
+    "lint": "uv run ruff check src/vyapaar_mcp/",
+    "mcp:start": "VYAPAAR_TRANSPORT=sse uv run vyapaarclaw",
+    "mcp:stdio": "uv run vyapaarclaw"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.0.1",
+    "chalk": "^5.6.2",
+    "commander": "^14.0.3",
+    "gradient-string": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsdown": "^0.20.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.1.0"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "packageManager": "pnpm@10.23.0"
+}

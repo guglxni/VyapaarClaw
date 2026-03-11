@@ -1,145 +1,157 @@
-# Vyapaar MCP
+# VyapaarClaw
 
-> **The CFO for the Agentic Economy** | **2 Fast 2 MCP Hackathon** | **$10,000+ Prizes**
+**Fully Managed OpenClaw Framework for AI Financial Governance.**
+The AI CFO for the agentic economy.
 
----
+VyapaarClaw is an [OpenClaw](https://openclaw.ai) framework that transforms AI agents into financially governed entities. It provides a complete governance layer — budget enforcement, vendor verification, risk scoring, compliance reporting, and human-in-the-loop approvals — so AI agents can handle real money without uncontrolled spending.
 
-## Overview
-
-Vyapaar MCP is a **production-grade governance layer** that sits between AI agents and the financial infrastructure. It intercepts, validates, and audits every payout request — enforcing budgets, checking vendor reputation, and keeping humans in the loop.
-
-Built on the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP), it exposes **12 governance tools** that any MCP-compatible client (Claude Desktop, Cursor, VS Code Copilot) can call.
-
-In the race to deploy AI agents, Vyapaar ensures they don't crash the company's finances. Think of it as your AI's **CFO** — always watching, always enforcing budgets.
-
----
-
-## Hackathon Alignment
-
-| Judging Criteria | How We Score |
-|-----------------|--------------|
-| **Potential Impact** | Solves real problem: AI agents spending company money without oversight |
-| **Creativity & Originality** | First MCP-based financial governance server with 6-layer security |
-| **Learning & Growth** | Built from scratch with FOSS integrations (GLEIF, IsolationForest) |
-| **Technical Implementation** | Clean architecture with Redis atomic ops, circuit breakers, async-first |
-| **Aesthetics & UX** | Streamlit dashboard with real-time metrics, beautiful dark theme |
-| **Best Use of Archestra** | Full Archestra integration with SSE transport, Foundry LLM |
-
----
-
-## Key Features
-
-### Security (6 Layers)
-
-| Layer | Technology | Purpose |
-|-------|------------|---------|
-| 1 | Google Safe Browsing v4 | Blocks malware vendor sites |
-| 2 | GLEIF Verification | Confirms vendors are real legal entities |
-| 3 | Budget Enforcement | Atomic Redis limits, no overspending |
-| 4 | Human Approval Gate | Slack integration for high-value txns |
-| 5 | ML Anomaly Detection | IsolationForest catches unusual patterns |
-| 6 | Policy Engine | Real-time domain blocking |
-
-### Speed & Reliability
-
-- Sub-millisecond budget checks via Redis Lua scripts
-- Circuit breakers prevent cascade failures
-- Async-first Python architecture
-- Prometheus metrics built-in
+```
+npx vyapaarclaw bootstrap   # Set up credentials & OpenClaw profile
+npx vyapaarclaw start        # Launch MCP server + Web UI + OpenClaw gateway
+```
 
 ---
 
 ## Architecture
 
 ```
-MCP Client          Vyapaar MCP              Razorpay X
-(Claude,       -->  (FastMCP)         -->   (Banking)
- Cursor)            |
-                     | Governance Engine    PostgreSQL
-                     |                      (Audit Logs)
-                     |
-                     | Reputation           Redis
-                     | (SB, GLEIF)          (Budgets)
-                     |
-                     | ML Anomaly           Slack
-                     | (IsolationForest)    (Human Loop)
+┌─────────────────────────────────────────────────────────┐
+│                   VyapaarClaw Framework                  │
+│                                                         │
+│  ┌──────────┐  ┌──────────┐  ┌────────────────────┐   │
+│  │ Web UI   │  │ OpenClaw │  │ Telegram / Slack    │   │
+│  │ :3100    │  │ Gateway  │  │ (Human-in-the-Loop) │   │
+│  └────┬─────┘  └────┬─────┘  └─────────┬──────────┘   │
+│       │              │                  │               │
+│       └──────────────┼──────────────────┘               │
+│                      │                                  │
+│              ┌───────▼──────────┐                       │
+│              │  MCP Server :8000│  25 governance tools  │
+│              │  (FastMCP + SSE) │                       │
+│              └───────┬──────────┘                       │
+│                      │                                  │
+│    ┌─────────────────┼─────────────────┐               │
+│    │                 │                 │               │
+│    ▼                 ▼                 ▼               │
+│  ┌──────┐     ┌──────────┐     ┌────────────┐        │
+│  │Redis │     │PostgreSQL│     │ External   │        │
+│  │Budget│     │ Audit    │     │ APIs       │        │
+│  │Track │     │ Policies │     │ Razorpay X │        │
+│  └──────┘     └──────────┘     │ GLEIF      │        │
+│                                │ Safe Browse│        │
+│                                └────────────┘        │
+└─────────────────────────────────────────────────────────┘
 ```
 
----
+## Features
 
-## Demo Flow (3 Minutes)
+### 25 MCP Governance Tools
 
-| Scenario | Agent | Vendor | Amount | Result |
-|----------|-------|--------|--------|--------|
-| 1: Legitimate | marketing-bot | Google LLC | ₹2,500 | APPROVED |
-| 2: Malware | marketing-bot | sketchy-vendor.xyz | ₹15,000 | BLOCKED |
-| 3: Budget | marketing-bot | any | ₹8,000 | REJECTED |
-| 4: Human | marketing-bot | AWS | ₹8,000 | HELD → Slack |
-| 5: ML Anomaly | night-bot | unknown.io | ₹25,000 | FLAGGED |
-| 6: Policy | any | .xyz domain | any | BLOCKED |
+| Category | Tools |
+|----------|-------|
+| **Budget Control** | `get_agent_budget`, `set_agent_policy`, `get_daily_spend`, `reallocate_budget` |
+| **Vendor Verification** | `check_vendor_reputation`, `verify_vendor_entity`, `get_vendor_trust_score` |
+| **Risk & Scoring** | `get_risk_score`, `evaluate_payout`, `detect_anomaly` |
+| **Compliance** | `generate_compliance_report`, `get_spending_trends`, `get_financial_calendar` |
+| **Monitoring** | `list_agents`, `forecast_cash_flow`, `get_audit_log` |
+| **Payments** | `create_payout`, `get_payout_status`, `process_webhook` |
+| **Notifications** | `send_slack_approval`, `send_telegram_alert` |
 
----
+### Web Dashboard
 
-## MCP Tools (12 Total)
+A Next.js application providing:
 
-| # | Tool | Function |
-|---|------|----------|
-| 1 | `handle_razorpay_webhook` | Process webhook → governance → action |
-| 2 | `poll_razorpay_payouts` | Poll API instead of webhooks |
-| 3 | `check_vendor_reputation` | Google Safe Browsing check |
-| 4 | `verify_vendor_entity` | GLEIF legal entity lookup |
-| 5 | `score_transaction_risk` | ML anomaly scoring |
-| 6 | `get_agent_risk_profile` | Agent spending patterns |
-| 7 | `get_agent_budget` | Current spend & limits |
-| 8 | `set_agent_policy` | Create/update policies |
-| 9 | `get_audit_log` | Query audit trail |
-| 10 | `handle_slack_action` | Process approve/reject |
-| 11 | `health_check` | Service status |
-| 12 | `get_metrics` | Prometheus metrics |
+- **Dashboard** — Budget utilisation bars, decision stats, risk heatmap
+- **Chat** — Conversational interface to the AI CFO
+- **Agents** — Agent policies, trust tiers, budget health
+- **Audit Log** — Searchable governance decision history
+- **Cron Jobs** — Scheduled autonomous operations
+
+### OpenClaw Integration
+
+- **Cron Jobs** — Morning financial brief, budget alarms, weekly compliance reports
+- **Webhooks** — Razorpay payment event processing
+- **Multi-Agent Delegation** — Spawn sub-agents for vendor due diligence
+- **Canvas Dashboard** — Real-time financial visualisations
+- **Skills** — CFO, delegation, and canvas skills for OpenClaw agents
+
+### Governance Pipeline
+
+Every transaction passes through a 6-layer verification:
+
+1. **Webhook Signature Verification** — Razorpay HMAC validation
+2. **Agent Policy Enforcement** — Daily limits, per-txn limits, domain restrictions
+3. **Vendor Reputation Check** — Google Safe Browsing threat analysis
+4. **Entity Verification** — GLEIF legal entity lookup
+5. **ML Anomaly Detection** — Isolation Forest on transaction patterns
+6. **Risk Scoring** — Composite score with automatic decision routing
 
 ---
 
 ## Quick Start
 
+### Prerequisites
+
+- **Python 3.12+** and [uv](https://docs.astral.sh/uv/)
+- **Node.js 22+** and pnpm
+- **Redis** — Budget tracking and caching
+- **PostgreSQL** — Audit logs and policies
+- **OpenClaw** (optional) — For gateway, Telegram, and cron features
+
+### Installation
+
 ```bash
-# Clone and setup
-git clone https://github.com/guglxni/vyapaar-mcp.git
-cd vyapaar-mcp
+# Clone and install
+git clone https://github.com/guglxni/VyapaarClaw.git
+cd VyapaarClaw
 
-# Start infrastructure
-docker compose up -d redis postgres
+# Install Python dependencies
+uv sync --dev
 
-# Configure
-cp .env.example .env
-# Add your Razorpay, Google Safe Browsing, Slack keys
+# Install Node.js dependencies
+pnpm install --no-frozen-lockfile
 
-# Run dashboard
-streamlit run demo/dashboard.py
+# Build the CLI and web UI
+pnpm build
+pnpm web:build
+
+# Run the bootstrap wizard
+node vyapaarclaw.mjs bootstrap
 ```
 
----
+### Running
 
-## Archestra Integration
+```bash
+# Start everything (MCP server + Web UI + OpenClaw gateway)
+node vyapaarclaw.mjs start
 
-Vyapaar is built for **Archestra** deployment:
+# Start MCP server only
+node vyapaarclaw.mjs start --mcp-only
 
-- **SSE Transport** — Stream events to Archestra
-- **Foundry LLM** — Azure AI Foundry for governance copilot
-- **Vault Secrets** — Environment-driven configuration
-- **Prometheus** — Built-in observability
+# Start without web UI
+node vyapaarclaw.mjs start --no-web
 
-```yaml
-# deploy/archestra.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: vyapaar-mcp
-spec:
-  ports:
-    - port: 8000
-      targetPort: 8000
-  selector:
-    app: vyapaar-mcp
+# Check status
+node vyapaarclaw.mjs status
+
+# Stop all services
+node vyapaarclaw.mjs stop
+```
+
+### Development
+
+```bash
+# Run MCP server in dev mode
+VYAPAAR_TRANSPORT=sse uv run vyapaarclaw
+
+# Run web UI in dev mode
+pnpm web:dev
+
+# Run Python tests
+uv run pytest tests/ --ignore=tests/test_razorpay_bridge.py
+
+# Run linter
+uv run ruff check src/vyapaar_mcp/
 ```
 
 ---
@@ -147,101 +159,74 @@ spec:
 ## Project Structure
 
 ```
-vyapaar-mcp/
-├── src/vyapaar_mcp/      # Core application
-│   ├── server.py           # FastMCP + 12 tools
-│   ├── governance/         # Policy engine
-│   ├── reputation/        # Safe Browsing, GLEIF, ML
-│   ├── db/                # Redis, PostgreSQL
-│   └── egress/            # Slack, Razorpay
-├── demo/
-│   └── dashboard.py       # Streamlit dashboard
-├── docs/
-│   ├── HACKATHON_README.md
-│   └── HACKATHON_DEMO_FLOW.md
-├── deploy/
-│   └── archestra.yaml
-└── tests/                 # 146 tests
-```
-
----
-
-## Why Vyapaar Wins
-
-1. **Real Problem** — Every company deploying AI agents needs financial governance
-2. **Clean Architecture** — Async-first, microservices-ready
-3. **Production-Grade** — Circuit breakers, audit logs, Prometheus
-4. **FOSS Stack** — No expensive dependencies
-5. **Demo-Ready** — Beautiful dashboard shows all features in 3 minutes
-6. **Archestra-Ready** — Full integration with SSE transport
-
----
-
-## Features
-
-| Category | Capability |
-|----------|------------|
-| **Governance** | Per-agent budgets (daily + per-txn), domain allow/block lists, multi-step approval |
-| **Reputation** | Google Safe Browsing v4, GLEIF legal entity verification, ML anomaly detection |
-| **Human-in-the-Loop** | Slack interactive buttons for HELD payouts, ntfy push fallback |
-| **Observability** | Prometheus metrics, structured audit logs, circuit breaker dashboards |
-| **Resilience** | Circuit breakers, sliding-window rate limiting, atomic Redis budget ops |
-| **Ingress** | Razorpay webhooks (HMAC-SHA256) + API polling via Go sidecar bridge |
-
----
-
-## Testing
-
-```bash
-# Full test suite
-uv run pytest tests/ -v
-
-# With coverage
-uv run pytest tests/ --cov=vyapaar_mcp --cov-report=term-missing
+vyapaarclaw/
+├── apps/web/              # Next.js web dashboard
+│   ├── app/
+│   │   ├── components/    # Dashboard, shell, charts
+│   │   ├── agents/        # Agent policies page
+│   │   ├── audit/         # Audit log page
+│   │   ├── chat/          # CFO chat interface
+│   │   └── cron/          # Scheduled jobs page
+│   └── package.json
+├── src/
+│   ├── cli/               # Node.js CLI (bootstrap, program, web-runtime)
+│   ├── vyapaar_mcp/       # Python MCP server
+│   │   ├── audit/         # Decision logging
+│   │   ├── db/            # Redis + PostgreSQL clients
+│   │   ├── egress/        # Notifications (Slack, Telegram, ntfy)
+│   │   ├── governance/    # Policy engine
+│   │   ├── ingress/       # Webhooks + polling
+│   │   ├── llm/           # Azure OpenAI integration
+│   │   ├── observability/ # Metrics + monitoring
+│   │   ├── reputation/    # Safe Browsing, GLEIF, anomaly detection
+│   │   ├── resilience/    # Circuit breakers
+│   │   └── server.py      # FastMCP server (25 tools)
+│   └── entry.ts           # CLI entry point
+├── skills/                # OpenClaw skills
+│   ├── cfo/               # Core AI CFO skill
+│   ├── cfo-delegation/    # Multi-agent delegation patterns
+│   └── cfo-canvas/        # Canvas dashboard templates
+├── templates/             # OpenClaw profile templates
+├── tests/                 # Python test suite (214 tests)
+└── vyapaarclaw.mjs        # CLI binary
 ```
 
 ---
 
 ## Configuration
 
-All configuration is via environment variables with the `VYAPAAR_` prefix. See [.env.example](.env.example) for the full list.
+### Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `VYAPAAR_RAZORPAY_KEY_ID` | Yes | Razorpay API Key ID |
-| `VYAPAAR_RAZORPAY_KEY_SECRET` | Yes | Razorpay API Key Secret |
-| `VYAPAAR_GOOGLE_SAFE_BROWSING_KEY` | Yes | Google Safe Browsing API key |
-| `VYAPAAR_POSTGRES_DSN` | Yes | PostgreSQL connection string |
-| `VYAPAAR_REDIS_URL` | No | Redis URL (default: `redis://localhost:6379/0`) |
-| `VYAPAAR_SLACK_BOT_TOKEN` | No | Slack bot token for approval notifications |
-| `VYAPAAR_NTFY_TOPIC` | No | ntfy topic for push notification fallback |
+| `VYAPAAR_RAZORPAY_KEY_ID` | Yes | Razorpay API key |
+| `VYAPAAR_RAZORPAY_KEY_SECRET` | Yes | Razorpay API secret |
+| `VYAPAAR_REDIS_URL` | Yes | Redis connection URL |
+| `VYAPAAR_PG_DSN` | Yes | PostgreSQL connection string |
+| `VYAPAAR_SAFE_BROWSING_KEY` | No | Google Safe Browsing API key |
+| `VYAPAAR_WEBHOOK_SECRET` | No | Razorpay webhook HMAC secret |
+| `TELEGRAM_BOT_TOKEN` | No | Telegram bot for HITL approvals |
+| `VYAPAAR_SLACK_TOKEN` | No | Slack bot for HITL approvals |
+| `VYAPAAR_AZURE_ENDPOINT` | No | Azure OpenAI endpoint |
+| `VYAPAAR_AZURE_KEY` | No | Azure OpenAI key |
+
+### OpenClaw Profile
+
+The `templates/openclaw.json` configures:
+
+- **Channels** — Telegram integration for approvals and alerts
+- **Cron** — Morning brief (daily), budget alarm (30 min), weekly compliance
+- **Webhooks** — Razorpay payment event processing
+- **Skills** — CFO, delegation, and canvas skills
+- **MCP Server** — Connection to VyapaarClaw at `localhost:8000/sse`
 
 ---
 
-## Documentation
+## Inspired By
 
-- [SPEC.md](SPEC.md) — Full architecture & governance specification
-- [docs/SLACK_SETUP.md](docs/SLACK_SETUP.md) — Slack bot configuration
-- [docs/TUNNEL_SETUP.md](docs/TUNNEL_SETUP.md) — Webhook tunnel setup
-- [docs/FOSS_BRAINSTORM.md](docs/FOSS_BRAINSTORM.md) — FOSS integration notes
-- [docs/HACKATHON_README.md](docs/HACKATHON_README.md) — Hackathon submission
-- [CONTRIBUTING.md](CONTRIBUTING.md) — Contributor guidelines
-
----
+- [DenchClaw](https://github.com/DenchHQ/DenchClaw) — Fully Managed OpenClaw Framework for CRM & Sales
+- [OpenClaw](https://openclaw.ai) — The personal AI assistant framework
 
 ## License
 
-[AGPL-3.0](LICENSE) — see [LICENSE](LICENSE) for details.
-
----
-
-## Links
-
-- **GitHub:** https://github.com/guglxni/vyapaar-mcp
-- **Dashboard:** http://localhost:8501
-- **Archestra:** https://archestra.ai
-- **MCP Protocol:** https://modelcontextprotocol.io
-
----
-
-*Built for the 2 Fast 2 MCP Hackathon — "It's not about how fast you code, it's about control, security, and architecture."*
+[AGPL-3.0](LICENSE)

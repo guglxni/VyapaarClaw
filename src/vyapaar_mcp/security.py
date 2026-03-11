@@ -1,4 +1,4 @@
-"""Security utilities for Vyapaar MCP.
+"""Security utilities for VyapaarClaw.
 
 Provides utility functions for secure logging, secret masking, and other
 security-related operations.

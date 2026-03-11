@@ -1,10 +1,9 @@
-"""Vyapaar MCP Server — FastMCP entrypoint with SSE transport.
+"""VyapaarClaw MCP Server — FastMCP entrypoint with SSE transport.
 
-Registers all governance tools and manages the lifecycle of
+Registers all 25 governance tools and manages the lifecycle of
 Redis, PostgreSQL, and external API clients.
 
-Deployment: Designed for Archestra platform with SSE transport,
-Vault-backed secrets, and Prometheus observability.
+Part of the VyapaarClaw OpenClaw Framework for AI Financial Governance.
 """
 
 from __future__ import annotations
@@ -16,8 +15,10 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+from starlette.routing import Mount, Route
 
 from vyapaar_mcp.audit.logger import log_decision
 from vyapaar_mcp.config import VyapaarConfig, load_config
@@ -26,9 +27,8 @@ from vyapaar_mcp.db.redis_client import RedisClient
 from vyapaar_mcp.egress.ntfy_notifier import NtfyNotifier, notify_with_fallback
 from vyapaar_mcp.egress.razorpay_actions import RazorpayActions
 from vyapaar_mcp.egress.slack_notifier import SlackNotifier
+from vyapaar_mcp.egress.telegram_notifier import TelegramNotifier
 from vyapaar_mcp.governance.engine import GovernanceEngine
-from vyapaar_mcp.reputation.anomaly import TransactionAnomalyScorer
-from vyapaar_mcp.reputation.gleif import GLEIFChecker
 from vyapaar_mcp.ingress.polling import PayoutPoller
 from vyapaar_mcp.ingress.razorpay_bridge import RazorpayBridge
 from vyapaar_mcp.ingress.webhook import (
@@ -36,6 +36,8 @@ from vyapaar_mcp.ingress.webhook import (
     parse_webhook_event,
     verify_razorpay_signature,
 )
+from vyapaar_mcp.llm import AzureOpenAIClient, SecurityLLMClient
+from vyapaar_mcp.llm.security_validator import ToolCallValidator
 from vyapaar_mcp.models import (
     AgentPolicy,
     BudgetStatus,
@@ -43,11 +45,11 @@ from vyapaar_mcp.models import (
     HealthStatus,
     ReasonCode,
 )
-from vyapaar_mcp.llm import AzureOpenAIClient, SecurityLLMClient
-from vyapaar_mcp.llm.security_validator import ToolCallValidator
 from vyapaar_mcp.observability import metrics
+from vyapaar_mcp.reputation.anomaly import TransactionAnomalyScorer
+from vyapaar_mcp.reputation.gleif import GLEIFChecker
 from vyapaar_mcp.reputation.safe_browsing import SafeBrowsingChecker
-from vyapaar_mcp.resilience import CircuitBreaker, CircuitOpenError
+from vyapaar_mcp.resilience import CircuitBreaker
 
 # ================================================================
 # Logging Setup
@@ -81,6 +83,7 @@ _cb_gleif: CircuitBreaker | None = None
 _gleif: GLEIFChecker | None = None
 _anomaly_scorer: TransactionAnomalyScorer | None = None
 _ntfy: NtfyNotifier | None = None
+_telegram: TelegramNotifier | None = None
 _azure_llm: AzureOpenAIClient | None = None
 _security_llm: SecurityLLMClient | None = None
 _tool_validator: ToolCallValidator | None = None
@@ -116,7 +119,7 @@ async def _lifespan(server: FastMCP):
 
 
 mcp = FastMCP(
-    "vyapaar-mcp",
+    "vyapaarclaw",
     instructions=(
         "Agentic Financial Governance Server — "
         "The CFO for the Agentic Economy. "
@@ -131,8 +134,123 @@ mcp = FastMCP(
 
 @mcp.custom_route("/health", methods=["GET"])
 async def health_endpoint(request: Request) -> JSONResponse:
-    """HTTP Health Check for Archestra/Load Balancers."""
-    return JSONResponse({"status": "ok", "service": "vyapaar-mcp"})
+    """HTTP Health Check for monitoring, load balancers, and web UI."""
+    redis_ok = await _redis.ping() if _redis else False
+    postgres_ok = await _postgres.ping() if _postgres else False
+    return JSONResponse({
+        "status": "ok" if (redis_ok and postgres_ok) else "degraded",
+        "service": "vyapaarclaw",
+        "version": "0.1.0",
+        "uptime_seconds": int(time.time() - _start_time),
+        "redis": "ok" if redis_ok else "error",
+        "postgres": "ok" if postgres_ok else "error",
+    })
+
+
+async def slack_actions_endpoint(request: Request) -> JSONResponse:
+    """Receive Slack interactive component callbacks (button clicks).
+
+    Slack POSTs a url-encoded payload when a user clicks Approve/Reject.
+    This endpoint verifies the signature, parses the action, and routes
+    it to the handle_slack_action tool internally.
+    """
+    import json as _json
+    from urllib.parse import parse_qs
+
+    body_bytes = await request.body()
+    body_str = body_bytes.decode("utf-8")
+
+    # Verify Slack signature when signing secret is configured
+    if _config and _config.slack_signing_secret:
+        from vyapaar_mcp.egress.slack_notifier import verify_slack_signature
+
+        timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
+        signature = request.headers.get("X-Slack-Signature", "")
+        if not verify_slack_signature(body_str, timestamp, signature, _config.slack_signing_secret):
+            return JSONResponse({"error": "invalid signature"}, status_code=401)
+
+    # Slack sends payload as url-encoded form: payload=<JSON>
+    parsed = parse_qs(body_str)
+    raw_payload = parsed.get("payload", [""])[0]
+    if not raw_payload:
+        return JSONResponse({"error": "missing payload"}, status_code=400)
+
+    try:
+        payload = _json.loads(raw_payload)
+    except _json.JSONDecodeError:
+        return JSONResponse({"error": "invalid JSON payload"}, status_code=400)
+
+    actions = payload.get("actions", [])
+    if not actions:
+        return JSONResponse({"error": "no actions in payload"}, status_code=400)
+
+    action = actions[0]
+    action_id = action.get("action_id", "")
+    payout_id = action.get("value", "")
+    user_name = payload.get("user", {}).get("username", "unknown")
+    channel = payload.get("channel", {}).get("id")
+    message_ts = payload.get("message", {}).get("ts")
+
+    _require(razorpay=_razorpay)
+
+    result = await handle_slack_action(
+        action_id=action_id,
+        payout_id=payout_id,
+        user_name=user_name,
+        channel=channel,
+        message_ts=message_ts,
+    )
+
+    return JSONResponse(result)
+
+
+async def telegram_callback_endpoint(request: Request) -> JSONResponse:
+    """Receive Telegram Bot API webhook updates (inline keyboard callbacks).
+
+    Telegram POSTs a JSON update when a user taps an inline keyboard button.
+    This endpoint parses the callback_query, extracts the action, and routes
+    it to handle_telegram_action.
+    """
+    import json as _json
+
+    try:
+        update = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    callback_query = update.get("callback_query")
+    if not callback_query:
+        return JSONResponse({"ok": True})
+
+    try:
+        data = _json.loads(callback_query.get("data", "{}"))
+    except (_json.JSONDecodeError, TypeError):
+        return JSONResponse({"error": "invalid callback_data"}, status_code=400)
+
+    action_id = data.get("a", "")
+    payout_id = data.get("p", "")
+    user = callback_query.get("from", {})
+    user_name = user.get("username") or user.get("first_name", "unknown")
+    message = callback_query.get("message", {})
+    chat_id = message.get("chat", {}).get("id")
+    message_id = message.get("message_id")
+    callback_query_id = callback_query.get("id")
+
+    if not action_id or not payout_id:
+        return JSONResponse({"error": "missing action or payout_id"}, status_code=400)
+
+    _require(razorpay=_razorpay)
+
+    result = await handle_telegram_action(
+        action_id=action_id,
+        payout_id=payout_id,
+        user_name=user_name,
+        chat_id=chat_id,
+        message_id=message_id,
+        callback_query_id=callback_query_id,
+    )
+
+    return JSONResponse(result)
 
 
 # ================================================================
@@ -143,7 +261,7 @@ async def health_endpoint(request: Request) -> JSONResponse:
 async def _startup() -> None:
     """Initialize all services on server start."""
     global _config, _redis, _postgres, _safe_browsing, \
-        _razorpay, _razorpay_bridge, _slack, _poller, \
+        _razorpay, _razorpay_bridge, _slack, _telegram, _poller, \
         _governance, _poll_task, _start_time, \
         _cb_razorpay, _cb_safe_browsing, _cb_gleif, \
         _gleif, _anomaly_scorer, _ntfy, \
@@ -153,7 +271,7 @@ async def _startup() -> None:
     _config = load_config()
 
     logger.info("=" * 60)
-    logger.info("  VYAPAAR MCP — Starting up...")
+    logger.info("  VyapaarClaw — Starting up...")
     logger.info("=" * 60)
 
     # Redis
@@ -221,6 +339,19 @@ async def _startup() -> None:
         logger.warning(
             "⚠️  Slack not configured — HELD payouts will not trigger approval requests. "
             "Set VYAPAAR_SLACK_BOT_TOKEN and VYAPAAR_SLACK_CHANNEL_ID in .env"
+        )
+
+    # Telegram Notifier (human-in-the-loop, alternative to Slack)
+    if _config.telegram_bot_token and _config.telegram_chat_id:
+        _telegram = TelegramNotifier(
+            bot_token=_config.telegram_bot_token,
+            chat_id=_config.telegram_chat_id,
+        )
+        logger.info("✅ Telegram notifier initialized (chat_id=%s)", _config.telegram_chat_id)
+    else:
+        logger.info(
+            "Telegram not configured — "
+            "set VYAPAAR_TELEGRAM_BOT_TOKEN and VYAPAAR_TELEGRAM_CHAT_ID to enable"
         )
 
     # Payout Poller (replaces webhooks)
@@ -374,7 +505,11 @@ async def _startup() -> None:
                     await _redis.rollback_budget(result.agent_id, result.amount)
                     logger.warning("Budget rolled back for %s: %d paise", result.agent_id, result.amount)
 
-            await notify_with_fallback(_slack, _ntfy, result, vendor_name=vendor_name, vendor_url=vendor_url)
+            await notify_with_fallback(
+                _slack, _ntfy, result,
+                vendor_name=vendor_name, vendor_url=vendor_url,
+                telegram_notifier=_telegram,
+            )
 
         _poll_task = asyncio.create_task(
             _poller.run_continuous(on_payout=_auto_poll_callback)
@@ -385,7 +520,7 @@ async def _startup() -> None:
         )
 
     logger.info("=" * 60)
-    logger.info("  VYAPAAR MCP — Ready to govern! 🛡️")
+    logger.info("  VyapaarClaw — Ready to govern! 🛡️")
     logger.info("  Mode: API Polling (no webhook/tunnel needed)")
     logger.info("  Sidecar: razorpay/mcp (all toolsets enabled)")
     logger.info("=" * 60)
@@ -393,13 +528,15 @@ async def _startup() -> None:
 
 async def _shutdown() -> None:
     """Cleanup on server shutdown."""
-    logger.info("Vyapaar MCP shutting down...")
+    logger.info("VyapaarClaw shutting down...")
     if _poll_task and not _poll_task.done():
         _poll_task.cancel()
     if _poller:
         _poller.stop()
     if _slack:
         await _slack.close()
+    if _telegram:
+        await _telegram.close()
     if _ntfy:
         await _ntfy.close()
     if _gleif:
@@ -414,7 +551,7 @@ async def _shutdown() -> None:
         await _redis.disconnect()
     if _postgres:
         await _postgres.disconnect()
-    logger.info("Vyapaar MCP shutdown complete")
+    logger.info("VyapaarClaw shutdown complete")
 
 
 # ================================================================
@@ -442,6 +579,13 @@ async def handle_razorpay_webhook(
     """
     _require(config=_config, redis=_redis, postgres=_postgres, governance=_governance, razorpay=_razorpay)
 
+    if not payload or len(payload) > 1_048_576:
+        return {
+            "decision": Decision.REJECTED.value,
+            "reason": "INVALID_PAYLOAD",
+            "detail": "Payload empty or exceeds 1 MB size limit",
+        }
+
     payload_bytes = payload.encode("utf-8")
 
     # --- Step 1: Verify Signature ---
@@ -457,10 +601,11 @@ async def handle_razorpay_webhook(
     try:
         event = parse_webhook_event(payload_bytes)
     except ValueError as e:
+        logger.warning("Webhook parse error: %s", e)
         return {
             "decision": Decision.REJECTED.value,
             "reason": "PARSE_ERROR",
-            "detail": str(e),
+            "detail": "Invalid webhook payload format",
         }
 
     # --- Step 3: Only handle payout.queued ---
@@ -516,8 +661,12 @@ async def handle_razorpay_webhook(
             await _redis.rollback_budget(result.agent_id, result.amount)
             logger.warning("Budget rolled back for %s: %d paise", result.agent_id, result.amount)
 
-    # --- Step 9: Notification (Slack + ntfy fallback) ---
-    await notify_with_fallback(_slack, _ntfy, result, vendor_name=vendor_name, vendor_url=vendor_url)
+    # --- Step 9: Notification (Slack / Telegram / ntfy) ---
+    await notify_with_fallback(
+        _slack, _ntfy, result,
+        vendor_name=vendor_name, vendor_url=vendor_url,
+        telegram_notifier=_telegram,
+    )
 
     return {
         "payout_id": result.payout_id,
@@ -624,8 +773,12 @@ async def poll_razorpay_payouts(
                 await _redis.rollback_budget(result.agent_id, result.amount)
                 logger.warning("Budget rolled back for %s: %d paise", result.agent_id, result.amount)
 
-        # Notification (Slack + ntfy fallback)
-        await notify_with_fallback(_slack, _ntfy, result, vendor_name=vendor_name, vendor_url=vendor_url)
+        # Notification (Slack / Telegram / ntfy)
+        await notify_with_fallback(
+            _slack, _ntfy, result,
+            vendor_name=vendor_name, vendor_url=vendor_url,
+            telegram_notifier=_telegram,
+        )
 
         results.append({
             "payout_id": result.payout_id,
@@ -892,6 +1045,85 @@ async def handle_slack_action(
     }
 
 
+@mcp.tool()
+async def handle_telegram_action(
+    action_id: str,
+    payout_id: str,
+    user_name: str = "unknown",
+    chat_id: str | int | None = None,
+    message_id: int | None = None,
+    callback_query_id: str | None = None,
+) -> dict[str, Any]:
+    """Process a Telegram inline keyboard callback (approve / reject).
+
+    Human-in-the-loop handler for Telegram: when a reviewer taps
+    Approve or Reject on the inline keyboard, call this tool.
+
+    Args:
+        action_id: Either "approve_payout" or "reject_payout".
+        payout_id: The Razorpay payout ID (e.g. "pout_...").
+        user_name: Telegram username of the reviewer.
+        chat_id: Telegram chat ID (for updating the message).
+        message_id: Telegram message ID (for updating the message).
+        callback_query_id: Telegram callback query ID (for acknowledging).
+
+    Returns:
+        Result of the approve/reject action plus message update status.
+    """
+    _require(razorpay=_razorpay)
+
+    if action_id == "approve_payout":
+        result = await _razorpay.approve_payout(payout_id)
+        action_label = "approved"
+    elif action_id == "reject_payout":
+        result = await _razorpay.reject_payout(payout_id)
+        action_label = "rejected"
+
+        if _postgres and _redis:
+            audit_logs = await _postgres.get_audit_logs(payout_id=payout_id, limit=1)
+            if audit_logs:
+                log = audit_logs[0]
+                if log.decision == Decision.HELD:
+                    await _redis.rollback_budget(log.agent_id, log.amount)
+                    logger.info(
+                        "Budget rolled back via Telegram action: agent=%s amount=%d",
+                        log.agent_id, log.amount,
+                    )
+    else:
+        return {"error": f"Unknown action: {action_id}"}
+
+    logger.info("Telegram action: %s %s payout %s", user_name, action_label, payout_id)
+
+    message_updated = False
+    if _telegram and chat_id and message_id:
+        try:
+            await _telegram.update_message(
+                chat_id=chat_id,
+                message_id=message_id,
+                payout_id=payout_id,
+                action="approve" if action_id == "approve_payout" else "reject",
+                user_name=user_name,
+            )
+            message_updated = True
+        except Exception as exc:
+            logger.warning("Failed to update Telegram message: %s", exc)
+
+    if _telegram and callback_query_id:
+        await _telegram.answer_callback(
+            callback_query_id,
+            f"Payout {action_label} by {user_name}",
+        )
+
+    return {
+        "status": "ok",
+        "action": action_label,
+        "payout_id": payout_id,
+        "reviewer": user_name,
+        "message_updated": message_updated,
+        **result,
+    }
+
+
 # ================================================================
 # FOSS Integration Tools
 # ================================================================
@@ -989,7 +1221,7 @@ async def get_agent_risk_profile(
 
 
 # ================================================================
-# Azure AI Foundry & Security Tools
+# AI & Security Tools (Kimi K2.5 + Dual LLM)
 # ================================================================
 
 
@@ -1005,7 +1237,7 @@ async def check_context_taint() -> dict[str, Any]:
         Taint status, sources that caused tainting, and affected tools.
     """
     _require(tool_validator=_tool_validator)
-    
+
     return {
         "context_tainted": _tool_validator.is_tainted,
         "taint_sources": _tool_validator._taint_sources,
@@ -1037,7 +1269,7 @@ async def validate_tool_call_security(
         tool_validator=_tool_validator,
         postgres=_postgres,
     )
-    
+
     # Get current governance policy for context
     policy = await _postgres.get_agent_policy(agent_id)
     governance_policy = {
@@ -1046,16 +1278,15 @@ async def validate_tool_call_security(
         "per_txn_limit": str(policy.per_txn_limit) if policy else None,
         "requires_approval_above": str(policy.require_approval_above) if policy else None,
     }
-    
-    from vyapaar_mcp.llm.security_validator import ToolCallRequest
-    
+
+
     result = await _tool_validator.validate(
         tool_name=tool_name,
         parameters=parameters,
         agent_id=agent_id,
         governance_policy=governance_policy,
     )
-    
+
     return {
         "approved": result.approved,
         "reason": result.reason,
@@ -1072,7 +1303,7 @@ async def azure_chat(
     temperature: float = 0.7,
     max_tokens: int = 1000,
 ) -> dict[str, Any]:
-    """Send a chat completion request to Azure OpenAI (AI Foundry).
+    """Send a chat completion request to Kimi K2.5 via Azure AI.
     
     Security note: This tool marks context as TAINTED because LLM responses
     can contain injected content. Subsequent high-privilege tool calls
@@ -1088,36 +1319,36 @@ async def azure_chat(
         LLM response text and token usage.
     """
     _require(azure_llm=_azure_llm, tool_validator=_tool_validator)
-    
+
     if not _azure_llm.is_configured:
         return {
-            "error": "Azure OpenAI not configured",
+            "error": "Kimi K2.5 not configured",
             "config_required": [
                 "VYAPAAR_AZURE_OPENAI_ENDPOINT",
                 "VYAPAAR_AZURE_OPENAI_API_KEY",
             ],
         }
-    
+
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": message},
     ]
-    
+
     response, status = await _azure_llm.chat_completion(
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
     )
-    
+
     if response is None:
         return {
             "error": status,
-            "hint": "Create deployment at https://ai.azure.com → Deployments → Create deployment",
+            "hint": "Configure VYAPAAR_AZURE_OPENAI_ENDPOINT and VYAPAAR_AZURE_OPENAI_API_KEY",
         }
-    
+
     # Taint context: LLM responses are untrusted
     _tool_validator.mark_taint("azure_chat")
-    
+
     return {
         "response": response,
         "context_note": "Response may be tainted - subsequent critical tools require validation",
@@ -1135,7 +1366,7 @@ async def get_archestra_status() -> dict[str, Any]:
         Archestra config, taint tracking status, and policy tiers.
     """
     _require(config=_config, tool_validator=_tool_validator)
-    
+
     return {
         "archestra_enabled": _config.archestra_enabled,
         "archestra_url": _config.archestra_url,
@@ -1159,12 +1390,573 @@ async def get_archestra_status() -> dict[str, Any]:
 
 
 # ================================================================
+# VyapaarClaw v2 — Proactive CFO Tools
+# ================================================================
+
+
+@mcp.tool()
+async def forecast_cash_flow(agent_id: str = "", horizon_days: int = 7) -> dict[str, Any]:
+    """Forecast budget burn rate and project when agents will exhaust daily limits.
+
+    Uses historical spending data to calculate burn rate trends and
+    project days until budget exhaustion. When agent_id is empty,
+    forecasts for all active agents.
+
+    Args:
+        agent_id: Specific agent to forecast, or empty for all agents.
+        horizon_days: How many days of history to analyze (default 7).
+
+    Returns:
+        Per-agent forecasts with burn_rate_per_day, projected_exhaustion_days,
+        trend (increasing/decreasing/stable), and budget_health (green/yellow/red).
+    """
+    _require(redis=_redis, postgres=_postgres)
+
+    if agent_id:
+        agent_ids = [agent_id]
+    else:
+        agents = await _postgres.list_all_agents()
+        agent_ids = [a["agent_id"] for a in agents]
+
+    if not agent_ids:
+        return {"forecasts": [], "note": "No agents with active policies found."}
+
+    forecasts = []
+    for aid in agent_ids:
+        history = await _redis.get_historical_spend(aid, days=horizon_days)
+        spends = [d["spend"] for d in history]
+        nonzero_spends = [s for s in spends if s > 0]
+
+        if not nonzero_spends:
+            forecasts.append({
+                "agent_id": aid,
+                "burn_rate_per_day": 0,
+                "trend": "inactive",
+                "budget_health": "green",
+                "note": "No spending in analysis window.",
+            })
+            continue
+
+        avg_daily = sum(nonzero_spends) / len(nonzero_spends)
+
+        if len(nonzero_spends) >= 3:
+            recent_half = nonzero_spends[len(nonzero_spends) // 2 :]
+            older_half = nonzero_spends[: len(nonzero_spends) // 2]
+            recent_avg = sum(recent_half) / len(recent_half)
+            older_avg = sum(older_half) / len(older_half) if older_half else recent_avg
+            if recent_avg > older_avg * 1.15:
+                trend = "increasing"
+            elif recent_avg < older_avg * 0.85:
+                trend = "decreasing"
+            else:
+                trend = "stable"
+        else:
+            trend = "insufficient_data"
+
+        policy = await _postgres.get_agent_policy(aid)
+        daily_limit = policy.daily_limit if policy else 500000
+
+        utilisation = avg_daily / daily_limit if daily_limit > 0 else 0
+        if utilisation > 0.8:
+            health = "red"
+        elif utilisation > 0.5:
+            health = "yellow"
+        else:
+            health = "green"
+
+        current_spend = await _redis.get_daily_spend(aid)
+        remaining_today = max(0, daily_limit - current_spend)
+
+        forecasts.append({
+            "agent_id": aid,
+            "daily_limit_paise": daily_limit,
+            "avg_daily_spend_paise": int(avg_daily),
+            "current_spend_today_paise": current_spend,
+            "remaining_today_paise": remaining_today,
+            "burn_rate_per_day": int(avg_daily),
+            "utilisation_pct": round(utilisation * 100, 1),
+            "trend": trend,
+            "budget_health": health,
+            "analysis_days": horizon_days,
+            "active_spend_days": len(nonzero_spends),
+        })
+
+    return {"forecasts": forecasts}
+
+
+@mcp.tool()
+async def generate_compliance_report(
+    period_days: int = 7, agent_id: str = "",
+
+) -> dict[str, Any]:
+    """Generate a compliance report summarizing governance decisions over a period.
+
+    Aggregates audit log data to produce approval/rejection ratios,
+    top rejection reasons, highest-risk agents, and per-agent breakdowns.
+    This is the weekly CFO governance review.
+
+    Args:
+        period_days: Number of days to cover (default 7).
+        agent_id: Filter to a specific agent, or empty for all.
+
+    Returns:
+        Structured compliance report with decision stats, risk indicators,
+        and actionable recommendations.
+    """
+    _require(postgres=_postgres)
+
+    period_days = max(1, min(period_days, 365))
+
+    stats = await _postgres.get_compliance_stats(
+        period_days=period_days,
+        agent_id=agent_id or None,
+    )
+
+    decisions = stats.get("decisions", {})
+    total = stats.get("total_decisions", 0)
+
+    approved = decisions.get("APPROVED", {}).get("count", 0)
+    rejected = decisions.get("REJECTED", {}).get("count", 0)
+    held = decisions.get("HELD", {}).get("count", 0)
+
+    approval_rate = (approved / total * 100) if total > 0 else 0
+    rejection_rate = (rejected / total * 100) if total > 0 else 0
+
+    risk_level = "low"
+    if rejection_rate > 30:
+        risk_level = "high"
+    elif rejection_rate > 15:
+        risk_level = "medium"
+
+    recommendations = []
+    if rejection_rate > 30:
+        recommendations.append(
+            "High rejection rate detected. Review agent policies "
+            "and vendor allowlists for misconfiguration."
+        )
+    if held > 0:
+        recommendations.append(
+            f"{held} transactions were held for human review. "
+            "Ensure HITL queue is being monitored."
+        )
+
+    agent_breakdown = stats.get("agent_breakdown", {})
+    high_risk_agents = []
+    for aid, agent_decisions in agent_breakdown.items():
+        agent_rejected = agent_decisions.get("REJECTED", {}).get("count", 0)
+        agent_total = sum(d.get("count", 0) for d in agent_decisions.values())
+        if agent_total > 0 and agent_rejected / agent_total > 0.3:
+            high_risk_agents.append({
+                "agent_id": aid,
+                "rejection_rate_pct": round(agent_rejected / agent_total * 100, 1),
+                "total_decisions": agent_total,
+            })
+
+    return {
+        "report_type": "compliance",
+        "period_days": period_days,
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "summary": {
+            "total_decisions": total,
+            "approved": approved,
+            "rejected": rejected,
+            "held": held,
+            "approval_rate_pct": round(approval_rate, 1),
+            "rejection_rate_pct": round(rejection_rate, 1),
+            "overall_risk_level": risk_level,
+        },
+        "top_rejection_reasons": stats.get("top_rejection_reasons", []),
+        "high_risk_agents": high_risk_agents,
+        "agent_breakdown": agent_breakdown,
+        "total_volume_paise": sum(
+            d.get("total_amount", 0) for d in decisions.values()
+        ),
+        "recommendations": recommendations,
+    }
+
+
+@mcp.tool()
+async def get_spending_trends(agent_id: str, days: int = 30) -> dict[str, Any]:
+    """Get daily spending trends for an agent over the past N days.
+
+    Returns time-series data suitable for charting or analysis.
+    Includes summary statistics (min, max, average, total).
+
+    Args:
+        agent_id: The agent whose spending to retrieve.
+        days: Number of days of history (default 30, max 90).
+
+    Returns:
+        Daily spend amounts with summary statistics.
+    """
+    _require(redis=_redis)
+
+    days = min(days, 90)
+    history = await _redis.get_historical_spend(agent_id, days=days)
+
+    spends = [d["spend"] for d in history]
+    nonzero = [s for s in spends if s > 0]
+
+    return {
+        "agent_id": agent_id,
+        "days_requested": days,
+        "daily_spend": history,
+        "summary": {
+            "total_spend_paise": sum(spends),
+            "active_days": len(nonzero),
+            "avg_daily_paise": int(sum(nonzero) / len(nonzero)) if nonzero else 0,
+            "max_daily_paise": max(spends) if spends else 0,
+            "min_nonzero_paise": min(nonzero) if nonzero else 0,
+        },
+    }
+
+
+@mcp.tool()
+async def evaluate_payout(
+    amount: int,
+    agent_id: str,
+    vendor_name: str = "",
+    vendor_url: str = "",
+    purpose: str = "",
+) -> dict[str, Any]:
+    """Run the complete governance pipeline on a proposed payout in one call.
+
+    Orchestrates: budget check -> vendor reputation -> entity verification ->
+    risk scoring -> domain allowlist/blocklist -> decision. This collapses
+    what would otherwise be 4-5 sequential tool calls into a single evaluation.
+
+    Args:
+        amount: Payout amount in paise (e.g. 50000 = Rs 500).
+        agent_id: The agent requesting the payout.
+        vendor_name: Vendor/payee name (optional but recommended).
+        vendor_url: Vendor URL for reputation check (optional).
+        purpose: Description of the payment purpose.
+
+    Returns:
+        Full governance result including decision, reason, risk score,
+        and all intermediate check results.
+    """
+    _require(redis=_redis, postgres=_postgres, governance=_governance)
+
+    from vyapaar_mcp.models import PayoutEntity, PayoutNotes
+
+    payout_id = f"eval_{agent_id}_{int(time.time() * 1000)}"
+    notes = PayoutNotes(
+        agent_id=agent_id,
+        purpose=purpose or "governance_evaluation",
+        vendor_url=vendor_url,
+    )
+    payout = PayoutEntity(
+        id=payout_id,
+        amount=amount,
+        currency="INR",
+        notes=notes,
+        status="evaluation",
+    )
+
+    result = await _governance.evaluate(payout, agent_id, vendor_url or None)
+
+    await log_decision(
+        _postgres,
+        result,
+        vendor_name=vendor_name,
+        vendor_url=vendor_url,
+    )
+
+    return {
+        "payout_id": payout_id,
+        "amount_paise": amount,
+        "amount_inr": f"Rs {amount / 100:,.2f}",
+        "agent_id": agent_id,
+        "vendor_name": vendor_name,
+        "decision": result.decision.value,
+        "reason_code": result.reason_code.value,
+        "reason_detail": result.reason_detail,
+        "threat_types": result.threat_types,
+        "processing_ms": result.processing_ms,
+        "risk_assessment": {
+            "budget_remaining_after": (
+                await _redis.get_daily_spend(agent_id)
+            ),
+        },
+    }
+
+
+@mcp.tool()
+async def list_agents() -> dict[str, Any]:
+    """List all agents with active spending policies and current budget status.
+
+    Combines policy data from PostgreSQL with real-time budget
+    utilisation from Redis. Useful for the morning brief and
+    cross-agent monitoring.
+
+    Returns:
+        List of agents with their policies, current daily spend,
+        and budget utilisation percentage.
+    """
+    _require(redis=_redis, postgres=_postgres)
+
+    agents_raw = await _postgres.list_all_agents()
+
+    agents = []
+    for agent in agents_raw:
+        aid = agent["agent_id"]
+        daily_limit = agent["daily_limit"]
+        current_spend = await _redis.get_daily_spend(aid)
+        utilisation = (current_spend / daily_limit * 100) if daily_limit > 0 else 0
+
+        agents.append({
+            **agent,
+            "current_daily_spend_paise": current_spend,
+            "utilisation_pct": round(utilisation, 1),
+            "budget_health": (
+                "red" if utilisation > 80
+                else "yellow" if utilisation > 50
+                else "green"
+            ),
+        })
+
+    return {
+        "total_agents": len(agents),
+        "agents": agents,
+    }
+
+
+@mcp.tool()
+async def reallocate_budget(
+    from_agent_id: str,
+    to_agent_id: str,
+    new_from_limit: int,
+    new_to_limit: int,
+) -> dict[str, Any]:
+    """Reallocate daily budget limits between two agents.
+
+    Adjusts the daily_limit in both agents' policies atomically.
+    Use when an agent consistently under-utilises budget while
+    another needs more headroom.
+
+    Args:
+        from_agent_id: Agent donating budget capacity.
+        to_agent_id: Agent receiving budget capacity.
+        new_from_limit: New daily limit for the donor (paise).
+        new_to_limit: New daily limit for the recipient (paise).
+
+    Returns:
+        Updated policies for both agents with budget status.
+    """
+    _require(redis=_redis, postgres=_postgres)
+
+    from_policy = await _postgres.get_agent_policy(from_agent_id)
+    to_policy = await _postgres.get_agent_policy(to_agent_id)
+
+    if from_policy is None:
+        return {"error": f"No policy found for agent '{from_agent_id}'"}
+    if to_policy is None:
+        return {"error": f"No policy found for agent '{to_agent_id}'"}
+
+    from_policy.daily_limit = new_from_limit
+    to_policy.daily_limit = new_to_limit
+
+    await _postgres.upsert_agent_policy(from_policy)
+    await _postgres.upsert_agent_policy(to_policy)
+
+    from_spend = await _redis.get_daily_spend(from_agent_id)
+    to_spend = await _redis.get_daily_spend(to_agent_id)
+
+    return {
+        "status": "reallocated",
+        "from_agent": {
+            "agent_id": from_agent_id,
+            "new_daily_limit": new_from_limit,
+            "current_spend": from_spend,
+            "remaining": max(0, new_from_limit - from_spend),
+        },
+        "to_agent": {
+            "agent_id": to_agent_id,
+            "new_daily_limit": new_to_limit,
+            "current_spend": to_spend,
+            "remaining": max(0, new_to_limit - to_spend),
+        },
+    }
+
+
+@mcp.tool()
+async def get_vendor_trust_score(vendor_url: str) -> dict[str, Any]:
+    """Calculate accumulated trust score for a vendor based on transaction history.
+
+    Analyses past governance decisions involving this vendor's domain
+    to build a trust profile. Factors: approval rate, total volume,
+    reputation check history, entity verification status.
+
+    Args:
+        vendor_url: Vendor URL or domain to score.
+
+    Returns:
+        Trust score (0-100), transaction history summary, risk factors.
+    """
+    _require(redis=_redis, postgres=_postgres)
+    from urllib.parse import urlparse
+
+    domain = urlparse(vendor_url).netloc or vendor_url
+
+    logs = await _postgres.get_audit_logs(limit=500)
+    vendor_logs = [
+        log for log in logs
+        if log.vendor_url and domain in log.vendor_url
+    ]
+
+    if not vendor_logs:
+        cached_rep = await _redis.get_cached_reputation(vendor_url)
+        return {
+            "vendor_url": vendor_url,
+            "domain": domain,
+            "trust_score": 50,
+            "confidence": "low",
+            "transactions": 0,
+            "cached_reputation": cached_rep,
+            "note": "No transaction history. Score is neutral. Run check_vendor_reputation and verify_vendor_entity for initial assessment.",
+        }
+
+    total = len(vendor_logs)
+    approved = sum(1 for l in vendor_logs if l.decision == Decision.APPROVED)
+    rejected = sum(1 for l in vendor_logs if l.decision == Decision.REJECTED)
+    total_volume = sum(l.amount for l in vendor_logs)
+    approval_rate = approved / total if total > 0 else 0
+
+    base_score = approval_rate * 70
+
+    if total >= 20:
+        base_score += 15
+    elif total >= 5:
+        base_score += 10
+    elif total >= 2:
+        base_score += 5
+
+    threat_count = sum(len(l.threat_types) for l in vendor_logs)
+    if threat_count > 0:
+        base_score -= min(30, threat_count * 10)
+
+    if total >= 10 and approval_rate > 0.9:
+        base_score += 15
+
+    trust_score = max(0, min(100, int(base_score)))
+
+    confidence = "high" if total >= 10 else "medium" if total >= 3 else "low"
+    risk_level = "low" if trust_score >= 70 else "medium" if trust_score >= 40 else "high"
+
+    return {
+        "vendor_url": vendor_url,
+        "domain": domain,
+        "trust_score": trust_score,
+        "risk_level": risk_level,
+        "confidence": confidence,
+        "transactions": {
+            "total": total,
+            "approved": approved,
+            "rejected": rejected,
+            "total_volume_paise": total_volume,
+        },
+        "threat_history": threat_count,
+        "recommendation": (
+            "TRUSTED — safe for automated approvals"
+            if trust_score >= 80
+            else "STANDARD — normal governance applies"
+            if trust_score >= 50
+            else "ELEVATED RISK — require manual approval"
+        ),
+    }
+
+
+@mcp.tool()
+async def get_financial_calendar(days_ahead: int = 7) -> dict[str, Any]:
+    """Get a financial activity summary and projected upcoming patterns.
+
+    Analyses recent transaction patterns to project upcoming spending
+    activity, recurring vendor payments, and budget pressure points.
+
+    Args:
+        days_ahead: Number of days to project (default 7, max 30).
+
+    Returns:
+        Recent activity summary, recurring patterns, and projected
+        budget pressure for upcoming days.
+    """
+    _require(redis=_redis, postgres=_postgres)
+
+    days_ahead = min(days_ahead, 30)
+
+    logs = await _postgres.get_audit_logs(limit=200)
+
+    from collections import Counter
+    from datetime import datetime
+
+    vendor_frequency: Counter[str] = Counter()
+    daily_activity: Counter[str] = Counter()
+    agent_activity: Counter[str] = Counter()
+
+    for log in logs:
+        if log.vendor_name:
+            vendor_frequency[log.vendor_name] += 1
+        if log.created_at:
+            day = log.created_at.strftime("%A")
+            daily_activity[day] += 1
+        agent_activity[log.agent_id] += 1
+
+    busiest_days = daily_activity.most_common(3)
+    recurring_vendors = [
+        {"vendor": v, "transactions": c}
+        for v, c in vendor_frequency.most_common(5)
+        if c >= 2
+    ]
+
+    agents_raw = await _postgres.list_all_agents()
+    pressure_points = []
+    for agent in agents_raw:
+        aid = agent["agent_id"]
+        history = await _redis.get_historical_spend(aid, days=7)
+        recent_spends = [d["spend"] for d in history if d["spend"] > 0]
+        if recent_spends:
+            avg_daily = sum(recent_spends) / len(recent_spends)
+            daily_limit = agent["daily_limit"]
+            if daily_limit > 0 and avg_daily / daily_limit > 0.6:
+                pressure_points.append({
+                    "agent_id": aid,
+                    "avg_daily_spend": int(avg_daily),
+                    "daily_limit": daily_limit,
+                    "utilisation_pct": round(avg_daily / daily_limit * 100, 1),
+                })
+
+    today = datetime.now().strftime("%A")
+
+    return {
+        "projection_days": days_ahead,
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "recent_activity": {
+            "total_decisions_in_log": len(logs),
+            "busiest_days_of_week": [
+                {"day": d, "avg_transactions": c} for d, c in busiest_days
+            ],
+            "today_is": today,
+            "today_expected_volume": (
+                daily_activity.get(today, 0)
+            ),
+        },
+        "recurring_vendors": recurring_vendors,
+        "budget_pressure_points": pressure_points,
+        "most_active_agents": [
+            {"agent_id": a, "transactions": c}
+            for a, c in agent_activity.most_common(5)
+        ],
+    }
+
+
+# ================================================================
 # Server Runner
 # ================================================================
 
 
 async def run_server() -> None:
-    """Start the Vyapaar MCP server.
+    """Start the VyapaarClaw server.
 
     When run directly, lifespan is handled by FastMCP automatically.
     """
@@ -1174,47 +1966,48 @@ async def run_server() -> None:
 def run_server_sync() -> None:
     """Synchronous entrypoint with custom SSE path handling."""
     import os
+
     import uvicorn
-    from starlette.applications import Starlette
-    from starlette.routing import Mount, Route
     from mcp.server.sse import SseServerTransport
 
     transport_name = os.environ.get("VYAPAAR_TRANSPORT", "stdio")
-    
+
     if transport_name == "sse":
         host = os.environ.get("VYAPAAR_HOST", "0.0.0.0")
         port = int(os.environ.get("VYAPAAR_PORT", "8000"))
-        
-        # Manually create the transport to use /sse for both
-        sse = SseServerTransport("/sse")
-        
-        async def sse_app_unified(request: Request):
+
+        # Create SSE transport - messages endpoint is relative
+        sse = SseServerTransport("/messages/")
+
+        async def sse_handler(request: Request) -> Response:
+            """Handle SSE connections - returns session ID via SSE event.
+            
+            Note: POST is accepted as a workaround for Kimi CLI bug that sends POST instead of GET.
+            """
             scope, receive, send = request.scope, request.receive, request._send
-            if scope["method"] == "GET":
-                async with sse.connect_sse(scope, receive, send) as streams:
-                    await mcp._mcp_server.run(
-                        streams[0],
-                        streams[1],
-                        mcp._mcp_server.create_initialization_options()
-                    )
-                # connect_sse already sends the response, don't return another one
-                return None
-            elif scope["method"] == "POST":
-                await sse.handle_post_message(scope, receive, send)
-                return None
-            return Response("Method Not Allowed", status_code=405)
+            async with sse.connect_sse(scope, receive, send) as streams:
+                await mcp._mcp_server.run(
+                    streams[0],
+                    streams[1],
+                    mcp._mcp_server.create_initialization_options()
+                )
+            # Return empty response after SSE connection closes
+            return Response()
 
         starlette_app = Starlette(
-            debug=True,
+            debug=_config.dev_mode,
             routes=[
-                Route("/sse", endpoint=sse_app_unified, methods=["GET", "POST"]),
+                Route("/sse", endpoint=sse_handler, methods=["GET", "POST"]),
+                Mount("/messages/", app=sse.handle_post_message),
                 Route("/health", endpoint=health_endpoint, methods=["GET"]),
+                Route("/slack/actions", endpoint=slack_actions_endpoint, methods=["POST"]),
+                Route("/telegram/callback", endpoint=telegram_callback_endpoint, methods=["POST"]),
             ]
         )
-        
+
         # Add custom routes from mcp
         starlette_app.routes.extend(mcp._custom_starlette_routes)
-        
+
         uvicorn.run(starlette_app, host=host, port=port)
     else:
         mcp.run(transport=transport_name)

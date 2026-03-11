@@ -1,6 +1,6 @@
-# Contributing to Vyapaar MCP
+# Contributing to VyapaarClaw
 
-Thank you for your interest in contributing to Vyapaar MCP! This document provides guidelines for contributing to the project.
+Thank you for your interest in contributing to VyapaarClaw! This document provides guidelines for contributing to the project.
 
 ## Development Setup
 
@@ -16,8 +16,8 @@ Thank you for your interest in contributing to Vyapaar MCP! This document provid
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/vyapaar-mcp.git
-cd vyapaar-mcp
+git clone https://github.com/guglxni/VyapaarClaw.git
+cd VyapaarClaw
 
 # Install dependencies
 uv sync
@@ -41,7 +41,7 @@ uv run pytest tests/ -v
 ## Project Structure
 
 ```
-vyapaar-mcp/
+vyapaarclaw/
 ├── src/vyapaar_mcp/        # Core application source
 │   ├── server.py           # FastMCP server & tool definitions
 │   ├── config.py           # Pydantic settings

@@ -6,6 +6,7 @@ Uses asyncpg for async, parameterized queries (SQL injection safe).
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import asyncpg
 
@@ -184,6 +185,113 @@ class PostgresClient:
             "Audit logged: payout=%s decision=%s reason=%s",
             result.payout_id, result.decision.value, result.reason_code.value,
         )
+
+    async def list_all_agents(self) -> list[dict[str, Any]]:
+        """List all agents with active policies.
+
+        Returns agent_id, daily_limit, per_txn_limit,
+        require_approval_above, and domain restrictions.
+        """
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM agent_policies ORDER BY agent_id"
+            )
+
+        return [
+            {
+                "agent_id": row["agent_id"],
+                "daily_limit": row["daily_limit"],
+                "per_txn_limit": row["per_txn_limit"],
+                "require_approval_above": row["require_approval_above"],
+                "allowed_domains": list(row["allowed_domains"] or []),
+                "blocked_domains": list(row["blocked_domains"] or []),
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+            }
+            for row in rows
+        ]
+
+    async def get_compliance_stats(
+        self,
+        period_days: int = 7,
+        agent_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Aggregate governance decisions for compliance reporting.
+
+        Returns decision counts, top rejection reasons, highest-risk
+        agents, and per-agent breakdowns.
+        """
+        conditions: list[str] = ["created_at >= NOW() - $1::interval"]
+        params: list[Any] = [f"{period_days} days"]
+        param_idx = 2
+
+        if agent_id:
+            conditions.append(f"agent_id = ${param_idx}")
+            params.append(agent_id)
+            param_idx += 1
+
+        where = "WHERE " + " AND ".join(conditions)
+
+        async with self.pool.acquire() as conn:
+            summary = await conn.fetch(
+                f"""
+                SELECT decision, COUNT(*) as cnt, SUM(amount) as total_amount
+                FROM audit_logs {where}
+                GROUP BY decision
+                """,
+                *params,
+            )
+
+            top_reasons = await conn.fetch(
+                f"""
+                SELECT reason_code, COUNT(*) as cnt
+                FROM audit_logs {where} AND decision != 'APPROVED'
+                GROUP BY reason_code
+                ORDER BY cnt DESC
+                LIMIT 10
+                """,
+                *params,
+            )
+
+            by_agent = await conn.fetch(
+                f"""
+                SELECT agent_id, decision, COUNT(*) as cnt, SUM(amount) as total_amount
+                FROM audit_logs {where}
+                GROUP BY agent_id, decision
+                ORDER BY agent_id
+                """,
+                *params,
+            )
+
+            total_rows = await conn.fetchval(
+                f"SELECT COUNT(*) FROM audit_logs {where}",
+                *params,
+            )
+
+        decisions = {
+            row["decision"]: {"count": row["cnt"], "total_amount": row["total_amount"] or 0}
+            for row in summary
+        }
+
+        agent_breakdown: dict[str, dict[str, Any]] = {}
+        for row in by_agent:
+            aid = row["agent_id"]
+            if aid not in agent_breakdown:
+                agent_breakdown[aid] = {}
+            agent_breakdown[aid][row["decision"]] = {
+                "count": row["cnt"],
+                "total_amount": row["total_amount"] or 0,
+            }
+
+        return {
+            "period_days": period_days,
+            "total_decisions": total_rows or 0,
+            "decisions": decisions,
+            "top_rejection_reasons": [
+                {"reason": r["reason_code"], "count": r["cnt"]} for r in top_reasons
+            ],
+            "agent_breakdown": agent_breakdown,
+        }
 
     async def get_audit_logs(
         self,

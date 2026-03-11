@@ -1,0 +1,102 @@
+{
+  "$schema": "https://docs.openclaw.ai/schemas/config.json",
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "azure/kimi-k2.5",
+        "fallbacks": ["openai/gpt-4o"]
+      },
+      "workspace": "~/.openclaw/profiles/vyapaar/workspace"
+    }
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "botToken": "${TELEGRAM_BOT_TOKEN}",
+      "dmPolicy": "pairing"
+    }
+  },
+  "cron": {
+    "enabled": true,
+    "maxConcurrentRuns": 2,
+    "jobs": [
+      {
+        "name": "VyapaarClaw Morning Brief",
+        "schedule": "30 1 * * *",
+        "session": "isolated",
+        "message": "Run the morning financial brief: call list_agents to check all budgets, generate_compliance_report for yesterday (period_days=1), forecast_cash_flow for each agent showing yellow or red health. Deliver a concise summary to Telegram with budget health, yesterday's decision stats, and action items.",
+        "announce": true,
+        "channel": "telegram"
+      },
+      {
+        "name": "VyapaarClaw Budget Alarm",
+        "schedule": "*/30 * * * *",
+        "session": "isolated",
+        "message": "Budget alarm check: call list_agents and check for any agent with utilisation_pct > 80. For each critical agent, call forecast_cash_flow to project remaining runway. If any agent is critical, send a brief alert to Telegram. If all agents are green, do nothing — no message needed.",
+        "announce": false,
+        "channel": "telegram"
+      },
+      {
+        "name": "VyapaarClaw Weekly Compliance",
+        "schedule": "30 3 * * 1",
+        "session": "isolated",
+        "message": "Generate the weekly compliance report: call generate_compliance_report(period_days=7) and list_agents. For high-risk agents, call get_spending_trends for trend data. Compose a comprehensive governance report with decision stats, high-risk agents, Indian compliance notes (GST/TDS), and policy recommendations. Deliver to Telegram.",
+        "announce": true,
+        "channel": "telegram"
+      }
+    ]
+  },
+  "hooks": {
+    "enabled": true,
+    "token": "${VYAPAAR_HOOKS_TOKEN}",
+    "path": "/hooks",
+    "defaultSessionKey": "hook:razorpay",
+    "mappings": [
+      {
+        "match": { "path": "razorpay" },
+        "action": "agent",
+        "agentId": "main",
+        "deliver": true,
+        "channel": "telegram",
+        "message": "A Razorpay webhook event has arrived. Process it using handle_razorpay_webhook with the payload and signature from this event. Evaluate the governance decision and report the result."
+      }
+    ]
+  },
+  "skills": {
+    "entries": {
+      "vyapaarclaw-cfo": {
+        "enabled": true,
+        "env": {
+          "VYAPAAR_RAZORPAY_KEY_ID": "${VYAPAAR_RAZORPAY_KEY_ID}",
+          "VYAPAAR_RAZORPAY_KEY_SECRET": "${VYAPAAR_RAZORPAY_KEY_SECRET}",
+          "VYAPAAR_GOOGLE_SAFE_BROWSING_KEY": "${VYAPAAR_GOOGLE_SAFE_BROWSING_KEY}",
+          "VYAPAAR_POSTGRES_DSN": "${VYAPAAR_POSTGRES_DSN}",
+          "VYAPAAR_REDIS_URL": "${VYAPAAR_REDIS_URL}"
+        }
+      },
+      "vyapaarclaw-cfo-delegation": {
+        "enabled": true
+      },
+      "vyapaarclaw-cfo-canvas": {
+        "enabled": true
+      }
+    }
+  },
+  "sessions": {
+    "spawn": {
+      "enabled": true,
+      "maxConcurrent": 3,
+      "defaults": {
+        "model": "openai/gpt-4o-mini",
+        "timeout": 120
+      }
+    }
+  },
+  "tools": {
+    "mcpServers": {
+      "vyapaarclaw": {
+        "url": "http://localhost:8000/sse"
+      }
+    }
+  }
+}

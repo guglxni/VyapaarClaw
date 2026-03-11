@@ -1,4 +1,4 @@
-"""Quick connectivity check for all Vyapaar MCP dependencies."""
+"""Quick connectivity check for all VyapaarClaw dependencies."""
 
 import asyncio
 import sys

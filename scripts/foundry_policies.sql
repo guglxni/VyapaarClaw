@@ -1,5 +1,5 @@
 -- ============================================================================
--- Foundry-Style Deterministic Access Policies for Vyapaar MCP
+-- Foundry-Style Deterministic Access Policies for VyapaarClaw
 -- Based on: https://archestra.ai/docs/platform-foundry
 -- 
 -- The Microsoft Foundry article demonstrates that probabilistic guardrails

@@ -1,4 +1,4 @@
-# Vyapaar MCP — FOSS Integration Brainstorm
+# VyapaarClaw — FOSS Integration Brainstorm
 
 ## Current State
 - **9 MCP Tools**: handle_razorpay_webhook, poll_razorpay_payouts, check_vendor_reputation, get_agent_budget, get_audit_log, set_agent_policy, health_check, get_metrics, handle_slack_action
@@ -7,12 +7,12 @@
 
 ---
 
-## Part 1: FOSS Demo App to Showcase Vyapaar MCP
+## Part 1: FOSS Demo App to Showcase VyapaarClaw
 
 ### Option A: Streamlit Dashboard (⭐ RECOMMENDED)
 **Repo**: [streamlit/streamlit](https://github.com/streamlit/streamlit) — Apache 2.0, 40k+ stars, Python-native
 
-A single-page visual dashboard that calls Vyapaar MCP tools and shows the full governance lifecycle:
+A single-page visual dashboard that calls VyapaarClaw tools and shows the full governance lifecycle:
 
 | Tab | MCP Tools Used | What It Shows |
 |-----|---------------|---------------|
@@ -53,7 +53,7 @@ A lightweight web app with:
 
 ---
 
-## Part 2: FOSS Repos to Plug INTO Vyapaar MCP (Enhancements)
+## Part 2: FOSS Repos to Plug INTO VyapaarClaw (Enhancements)
 
 ### 🏆 Tier 1: High-Impact, Easy Integration
 
@@ -98,7 +98,7 @@ A lightweight web app with:
 #### 5. Apache Fineract (via Mifos MCP) — Core Banking
 **Repo**: [openMF/mcp-mifosx](https://github.com/openMF/mcp-mifosx) + [apache/fineract](https://github.com/apache/fineract)
 **What**: Open-source core banking platform with its own MCP server
-**Integration**: Chain Vyapaar MCP as governance layer in front of Mifos:
+**Integration**: Chain VyapaarClaw as governance layer in front of Mifos:
 - Mifos handles loans, savings, accounts
 - Vyapaar governs every disbursement/transfer
 - Create an MCP-to-MCP bridge

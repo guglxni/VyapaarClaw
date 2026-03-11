@@ -43,7 +43,7 @@ For a persistent and repeatable setup, use a `ngrok.yml` file, but **reference e
    ```yaml
    authtoken: ${NGROK_AUTHTOKEN}
    tunnels:
-     vyapaar-mcp:
+     vyapaarclaw:
        proto: http
        addr: 8000
        schemes:
@@ -51,7 +51,7 @@ For a persistent and repeatable setup, use a `ngrok.yml` file, but **reference e
    ```
 3. Run using the config:
    ```bash
-   ngrok start --config ngrok.yml vyapaar-mcp
+   ngrok start --config ngrok.yml vyapaarclaw
    ```
 
 ---

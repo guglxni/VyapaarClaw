@@ -1,4 +1,4 @@
--- Vyapaar MCP: Initial Schema Migration
+-- VyapaarClaw: Initial Schema Migration
 -- Version: 001
 -- Date: 2026-02-10
 

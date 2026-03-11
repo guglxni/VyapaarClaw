@@ -1,4 +1,4 @@
-# Vyapaar MCP — Comprehensive Code Review
+# VyapaarClaw — Comprehensive Code Review
 
 > *Internal prototype record*
 
@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-The Vyapaar MCP codebase is a high-quality, professional-grade implementation of a financial governance layer for AI agents. It effectively bridges the gap between autonomous agents and the Razorpay X banking platform by enforcing budgets, reputation checks, and human-in-the-loop workflows.
+The VyapaarClaw codebase is a high-quality, professional-grade implementation of a financial governance layer for AI agents. It effectively bridges the gap between autonomous agents and the Razorpay X banking platform by enforcing budgets, reputation checks, and human-in-the-loop workflows.
 
 The architecture is robust, utilizing a hybrid ingress model (Webhooks + API Polling) and a secure, fail-closed governance engine. The code is written in modern Python (3.12) with a strong emphasis on type safety, atomicity, and resilience.
 
@@ -97,6 +97,6 @@ To resolve this error without modifying the core codebase:
 
 ## 7. Conclusion
 
-The **Vyapaar MCP** codebase is a model for how MCP servers should be built: secure, resilient, and highly interoperable. The hybrid architecture and the use of the Go sidecar bridge are particularly noteworthy innovations that solve real-world integration challenges in the fintech space.
+The **VyapaarClaw** codebase is a model for how MCP servers should be built: secure, resilient, and highly interoperable. The hybrid architecture and the use of the Go sidecar bridge are particularly noteworthy innovations that solve real-world integration challenges in the fintech space.
 
 **Status:** `READY FOR DEPLOYMENT` (pending final environment configuration)

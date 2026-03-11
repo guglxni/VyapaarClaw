@@ -91,6 +91,60 @@ class TestAtomicBudget:
         result = await fake_redis.check_budget_atomic("agent-001", 0, 500000)
         assert result is True
 
+    async def test_reset_daily_spend(self, fake_redis: RedisClient) -> None:
+        """Reset should clear the daily spend counter."""
+        await fake_redis.check_budget_atomic("agent-reset", 300000, 500000)
+        spent = await fake_redis.get_daily_spend("agent-reset")
+        assert spent == 300000
+
+        await fake_redis.reset_daily_spend("agent-reset")
+        spent = await fake_redis.get_daily_spend("agent-reset")
+        assert spent == 0
+
+    async def test_reset_then_spend_again(self, fake_redis: RedisClient) -> None:
+        """After reset, agent should be able to spend again."""
+        # Spend up to limit
+        await fake_redis.check_budget_atomic("agent-reset2", 500000, 500000)
+        result = await fake_redis.check_budget_atomic("agent-reset2", 1, 500000)
+        assert result is False
+
+        # Reset and spend again
+        await fake_redis.reset_daily_spend("agent-reset2")
+        result = await fake_redis.check_budget_atomic("agent-reset2", 100000, 500000)
+        assert result is True
+
+    async def test_manual_rollback(self, fake_redis: RedisClient) -> None:
+        """Rollback should decrease the budget counter."""
+        await fake_redis.check_budget_atomic("agent-rb", 300000, 500000)
+        await fake_redis.rollback_budget("agent-rb", 100000)
+
+        spent = await fake_redis.get_daily_spend("agent-rb")
+        assert spent == 200000
+
+
+@pytest.mark.asyncio
+class TestRateLimit:
+    """Test sliding window rate limiting."""
+
+    async def test_within_limit(self, fake_redis: RedisClient) -> None:
+        """Requests within limit should be allowed."""
+        allowed, count = await fake_redis.check_rate_limit(
+            "agent-rl", max_requests=5, window_seconds=60,
+        )
+        assert allowed is True
+        assert count == 1
+
+    async def test_exceeds_limit(self, fake_redis: RedisClient) -> None:
+        """Requests exceeding limit should be blocked."""
+        for _ in range(5):
+            await fake_redis.check_rate_limit("agent-rl2", max_requests=5, window_seconds=60)
+
+        allowed, count = await fake_redis.check_rate_limit(
+            "agent-rl2", max_requests=5, window_seconds=60,
+        )
+        assert allowed is False
+        assert count == 5
+
 
 @pytest.mark.asyncio
 class TestIdempotency:

@@ -98,7 +98,7 @@ def print_header() -> None:
     """Print demo header."""
     print()
     print("=" * 70)
-    print("  🔥 Vyapaar MCP — Governance Decision Demo")
+    print("  🔥 VyapaarClaw — Governance Decision Demo")
     print("  The CFO for the Agentic Economy")
     print("=" * 70)
     print()

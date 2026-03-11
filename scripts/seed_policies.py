@@ -79,7 +79,7 @@ async def seed() -> None:
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("  Vyapaar MCP — Seed Agent Policies")
+    print("  VyapaarClaw — Seed Agent Policies")
     print("=" * 60)
     print()
     asyncio.run(seed())

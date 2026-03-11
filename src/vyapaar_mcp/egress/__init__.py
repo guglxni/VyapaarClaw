@@ -1,1 +1,1 @@
-"""Egress package — Razorpay payout actions + Slack + ntfy notifications."""
+"""Egress package — Razorpay payout actions + Slack + Telegram + ntfy notifications."""

@@ -1,4 +1,4 @@
-"""Pydantic V2 data models for Vyapaar MCP.
+"""Pydantic V2 data models for VyapaarClaw.
 
 All models use strict mode and ConfigDict per SPEC §4 constraint #5.
 Amounts are always in paise (integer). ₹500 = 50000 paise.

@@ -1,4 +1,4 @@
-# Project Checkpoint: Vyapaar MCP
+# Project Checkpoint: VyapaarClaw
 
 > *Internal prototype record*
 
@@ -10,7 +10,7 @@
 
 ## 🚀 Executive Summary
 
-Vyapaar MCP has evolved from a pure webhook-based governance server to a **Hybrid Architecture** (v4.0.0). It now includes a **Go MCP Sidecar** that provides native connectivity to the Razorpay API, enabling both **active polling** and **event-driven** operations.
+VyapaarClaw has evolved from a pure webhook-based governance server to a **Hybrid Architecture** (v4.0.0). It now includes a **Go MCP Sidecar** that provides native connectivity to the Razorpay API, enabling both **active polling** and **event-driven** operations.
 
 This architecture solves the "local development gap" — no tunnels or ngrok required for development. The Python server simply asks the Go binary to fetch payouts, runs them through the governance engine, and approves/rejects them.
 
@@ -20,10 +20,10 @@ This architecture solves the "local development gap" — no tunnels or ngrok req
 
 ```mermaid
 graph TD
-    User[Developer / Cron] -->|poll_razorpay_payouts| PyServer(Vyapaar MCP Python)
+    User[Developer / Cron] -->|poll_razorpay_payouts| PyServer(VyapaarClaw Python)
     Razorpay[Razorpay API] -->|Webhook: payout.queued| PyServer
     
-    subgraph "Vyapaar MCP (Python)"
+    subgraph "VyapaarClaw (Python)"
         Ingress[Ingress Layer]
         Governance[Governance Engine]
         Bridge[Razorpay Bridge]

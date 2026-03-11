@@ -55,7 +55,9 @@ def _write_fallback(
     FALLBACK_DIR.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%S")
-    filename = FALLBACK_DIR / f"{result.payout_id}_{timestamp}.json"
+    import re
+    safe_id = re.sub(r"[^a-zA-Z0-9_-]", "_", result.payout_id)[:64]
+    filename = FALLBACK_DIR / f"{safe_id}_{timestamp}.json"
 
     entry = {
         "payout_id": result.payout_id,

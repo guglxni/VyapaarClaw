@@ -1,6 +1,6 @@
 # Changelog (Internal Prototype Record)
 
-> This is an internal development log. Vyapaar MCP has not been publicly
+> This is an internal development log. VyapaarClaw has not been publicly
 > released or versioned. These entries track prototype development milestones.
 
 ---

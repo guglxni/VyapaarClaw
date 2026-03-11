@@ -1,11 +1,11 @@
 # Archestra Deployment Manifest
-# Vyapaar MCP — Financial Governance Server
+# VyapaarClaw — AI CFO Financial Governance Server
 # Reference: archestra/references/deployment.md
 
 version: "v1"
 
 server:
-  name: "vyapaar-mcp"
+  name: "vyapaarclaw"
   description: "Agentic Financial Governance Server — Razorpay X + GLEIF + Safe Browsing + ML Anomaly Detection"
   transport:
     type: "sse"
@@ -22,7 +22,7 @@ gateway:
     type: "bearer"
     token: "${ARCHESTRA_TEAM_TOKEN}"
 
-# 12 Vyapaar MCP Tools — Foundry Trust Classification
+# 12 VyapaarClaw Tools — Foundry Trust Classification
 tools:
   # ===========================================================================
   # TIER 1: DENY when context tainted (deterministic hard block)
@@ -97,7 +97,7 @@ tools:
     trust_output: true  # Internal ML analysis on historical data
     foundry_rule: "allow_readonly_governance"
   - name: "health_check"
-    description: "Check health of all Vyapaar MCP subsystems"
+    description: "Check health of all VyapaarClaw subsystems"
     foundry_tier: "allow_always"
     trust_output: true  # Internal system status only
     foundry_rule: "allow_readonly_observability"

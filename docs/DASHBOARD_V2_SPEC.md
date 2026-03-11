@@ -1,4 +1,4 @@
-# Vyapaar MCP Dashboard v2.0 — Enhanced Specification
+# VyapaarClaw Dashboard v2.0 — Enhanced Specification
 
 ## 1. Vision
 An autonomous financial command center that feels like a "Cyber-Bento" interface. It prioritizes high-density information, real-time reactivity (SSE), and a "Security-First" aesthetic.
@@ -7,7 +7,7 @@ An autonomous financial command center that feels like a "Cyber-Bento" interface
 - **Framework:** Next.js 14 (App Router)
 - **Styling:** Tailwind CSS + shadcn/ui
 - **Motion:** Framer Motion + ReactBits.dev
-- **Data:** Real-time SSE from Vyapaar MCP (Port 8000)
+- **Data:** Real-time SSE from VyapaarClaw (Port 8000)
 - **Visuals:** Neo-Brutalist (Obsidian & Electric Orange)
 
 ## 3. Visual Components (ReactBits Integration)

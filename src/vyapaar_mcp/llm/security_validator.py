@@ -167,13 +167,13 @@ class SecurityLLMClient:
             if self._config.quarantine_strict:
                 return ValidationResult(
                     approved=False,
-                    reason=f"Validation error: {e}",
+                    reason="Security validation failed",
                     risk_score=1.0,
                     mitigation="DENY",
                 )
             return ValidationResult(
                 approved=True,
-                reason=f"Validation error (non-strict): {e}",
+                reason="Validation error (non-strict mode, see server logs)",
                 risk_score=0.5,
             )
 

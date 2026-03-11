@@ -1,4 +1,4 @@
-# Vyapaar MCP — Hackathon Submission
+# VyapaarClaw — Hackathon Submission
 
 > **2 Fast 2 MCP Hackathon** | **$10,000+ Prizes** | **Archestra Platform**
 
@@ -6,7 +6,7 @@
 
 ## 🏁 Project Overview
 
-**Vyapaar MCP** is a production-grade governance layer for AI agents that enforces financial controls, vendor vetting, and audit trails — all via the Model Context Protocol (MCP).
+**VyapaarClaw** is a production-grade governance layer for AI agents that enforces financial controls, vendor vetting, and audit trails — all via the Model Context Protocol (MCP).
 
 In the race to deploy AI agents, Vyapaar ensures they don't crash the company's finances. Think of it as your AI's **CFO** — always watching, always enforcing budgets, and never letting a suspicious vendor slip through.
 
@@ -46,7 +46,7 @@ In the race to deploy AI agents, Vyapaar ensures they don't crash the company's 
 
 ```
 ┌─────────────┐      ┌─────────────────┐      ┌──────────────┐
-│ MCP Client │─────▶│  Vyapaar MCP    │─────▶│ Razorpay X   │
+│ MCP Client │─────▶│  VyapaarClaw    │─────▶│ Razorpay X   │
 │ (Claude,   │       │  (FastMCP)     │      │  (Banking)   │
 │  Cursor)   │       │                 │      └──────────────┘
 └─────────────┘      │ ┌─────────────┐ │
@@ -139,8 +139,8 @@ In the race to deploy AI agents, Vyapaar ensures they don't crash the company's 
 
 ```bash
 # Clone and setup
-git clone https://github.com/guglxni/vyapaar-mcp.git
-cd vyapaar-mcp
+git clone https://github.com/guglxni/vyapaarclaw.git
+cd vyapaarclaw
 
 # Start infrastructure
 docker compose up -d redis postgres
@@ -169,13 +169,13 @@ Vyapaar is built for **Archestra** deployment:
 apiVersion: v1
 kind: Service
 metadata:
-  name: vyapaar-mcp
+  name: vyapaarclaw
 spec:
   ports:
     - port: 8000
       targetPort: 8000
   selector:
-    app: vyapaar-mcp
+    app: vyapaarclaw
 ```
 
 ---
@@ -183,7 +183,7 @@ spec:
 ## 📁 Project Structure
 
 ```
-vyapaar-mcp/
+vyapaarclaw/
 ├── src/vyapaar_mcp/      # Core application
 │   ├── server.py          # FastMCP + 12 tools
 │   ├── governance/        # Policy engine
@@ -219,7 +219,7 @@ AGPL-3.0 — See [LICENSE](LICENSE)
 
 ## 🔗 Links
 
-- **GitHub:** https://github.com/guglxni/vyapaar-mcp
+- **GitHub:** https://github.com/guglxni/vyapaarclaw
 - **Dashboard:** http://localhost:8501
 - **Archestra:** https://archestra.ai
 

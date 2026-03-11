@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Vyapaar MCP — Automated Demo (No User Interaction).
+"""VyapaarClaw — Automated Demo (No User Interaction).
 
 Demonstrates all 12 MCP tools through a complete governance lifecycle.
 Run: python demo/automated_demo.py
@@ -220,7 +220,7 @@ async def run_demo() -> None:
      • Deploy to Archestra Platform (SSE transport)
      • Run Streamlit dashboard: {DIM}streamlit run demo/dashboard.py{RESET}
 
-  {DIM}Repository: https://github.com/guglxni/vyapaar-mcp
+  {DIM}Repository: https://github.com/guglxni/vyapaarclaw
   License: AGPL-3.0 (monetization protected){RESET}
     """)
 

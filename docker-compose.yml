@@ -1,6 +1,6 @@
 services:
   # ================================================================
-  # Vyapaar MCP Server (Python — governance layer)
+  # VyapaarClaw Server (Python — governance layer)
   # ================================================================
   vyapaar:
     build: .

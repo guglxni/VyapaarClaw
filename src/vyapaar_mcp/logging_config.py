@@ -1,4 +1,4 @@
-"""Structured logging configuration for Vyapaar MCP.
+"""Structured logging configuration for VyapaarClaw.
 
 Provides JSON logging for production environments with contextual fields.
 Can be enabled via VYAPAAR_LOG_FORMAT=json environment variable.

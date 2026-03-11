@@ -1,4 +1,4 @@
-# Project Checkpoint: Vyapaar MCP
+# Project Checkpoint: VyapaarClaw
 
 > *Internal prototype record*
 
@@ -11,7 +11,7 @@
 
 ## 🚀 Executive Summary
 
-Vyapaar MCP builds on the Hybrid Architecture with four major additions:
+VyapaarClaw builds on the Hybrid Architecture with four major additions:
 
 1. **Slack Integration** — HELD payouts trigger human-in-the-loop approval requests in Slack. Security-relevant rejections send alert notifications.
 2. **Auto-Polling** — Background polling with configurable intervals replaces manual `poll_razorpay_payouts` calls. Set `VYAPAAR_AUTO_POLL=true` for cron-style automation.
@@ -24,10 +24,10 @@ Vyapaar MCP builds on the Hybrid Architecture with four major additions:
 
 ```mermaid
 graph TD
-    User[Developer / Cron] -->|poll_razorpay_payouts| PyServer(Vyapaar MCP Python)
+    User[Developer / Cron] -->|poll_razorpay_payouts| PyServer(VyapaarClaw Python)
     Razorpay[Razorpay API] -->|Webhook: payout.queued| PyServer
     
-    subgraph "Vyapaar MCP (Python)"
+    subgraph "VyapaarClaw (Python)"
         Ingress[Ingress Layer]
         Governance[Governance Engine]
         Bridge[Razorpay Bridge]

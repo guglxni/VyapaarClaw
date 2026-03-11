@@ -1,4 +1,4 @@
-# Vyapaar MCP — Comprehensive Code Review
+# VyapaarClaw — Comprehensive Code Review
 
 > *Internal prototype record*
 

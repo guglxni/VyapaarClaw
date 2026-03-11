@@ -1,4 +1,4 @@
-"""Razorpay webhook handler — ingress point for Vyapaar MCP.
+"""Razorpay webhook handler — ingress point for VyapaarClaw.
 
 CRITICAL SECURITY:
 - Every webhook MUST have its X-Razorpay-Signature verified via HMAC-SHA256.

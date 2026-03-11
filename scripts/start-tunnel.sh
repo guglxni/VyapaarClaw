@@ -4,7 +4,7 @@
 
 set -e
 
-echo "🔐 Vyapaar MCP — Secure Tunnel Startup"
+echo "🔐 VyapaarClaw — Secure Tunnel Startup"
 echo "========================================"
 
 # Check if .env exists
@@ -49,4 +49,4 @@ echo "========================================"
 echo ""
 
 # Start ngrok using config file
-ngrok start --config ngrok.yml vyapaar-mcp
+ngrok start --config ngrok.yml vyapaarclaw
