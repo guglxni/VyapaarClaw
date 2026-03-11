@@ -18,6 +18,7 @@ const NAV_ITEMS = [
   { href: "/agents", label: "Agents", icon: Users },
   { href: "/audit", label: "Audit Log", icon: ScrollText },
   { href: "/cron", label: "Cron Jobs", icon: Clock },
+  { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
 export function AppShell({ children }: { children: React.ReactNode }) {

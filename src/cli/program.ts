@@ -252,6 +252,25 @@ export function buildProgram(): Command {
       );
     });
 
+  program
+    .command("tui")
+    .description("Launch the terminal UI dashboard (Python Textual)")
+    .action(() => {
+      console.log(chalk.yellow("Launching VyapaarClaw TUI..."));
+      const projectRoot = getProjectRoot();
+      const tui = spawn("uv", ["run", "vyapaarclaw-tui"], {
+        cwd: projectRoot,
+        stdio: "inherit",
+      });
+      tui.on("error", (err) => {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          console.log(
+            chalk.red("uv not found. Install: curl -LsSf https://astral.sh/uv/install.sh | sh")
+          );
+        }
+      });
+    });
+
   // Default command: bootstrap
   program.action(async () => {
     const { runBootstrap } = await import("./bootstrap.js");
