@@ -1,0 +1,36 @@
+flowchart TD
+    %% Styling
+    classDef hook fill:#f6e05e,stroke:#d69e2e,color:#744210,rx:5,ry:5,stroke-width:2px;
+    classDef allow fill:#c6f6d5,stroke:#38a169,color:#22543d,rx:5,ry:5,stroke-width:2px;
+    classDef reject fill:#fed7d7,stroke:#e53e3e,color:#742a2a,rx:5,ry:5,stroke-width:2px;
+    classDef hold fill:#feebc8,stroke:#dd6b20,color:#7b341e,rx:5,ry:5,stroke-width:2px;
+    classDef process fill:#edf2f7,stroke:#a0aec0,color:#2d3748,rx:5,ry:5,stroke-width:2px;
+
+    Start(["Agent Payout Request"]):::hook --> CheckPol["1. Agent has Policy?"]:::process
+    
+    CheckPol -- Yes --> CheckDom["2. Domain Allowed?"]:::process
+    CheckPol -- No --> R1["REJECT (NO_POLICY)"]:::reject
+    
+    CheckDom -- Yes --> CheckTxn["3. Under Txn Limit?"]:::process
+    CheckDom -- No --> R2["REJECT (DOMAIN_BLOCKED)"]:::reject
+    
+    CheckTxn -- Yes --> CheckML["4. ML Anomaly Score OK?"]:::process
+    CheckTxn -- No --> R3["REJECT (TXN_LIMIT_EXCEEDED)"]:::reject
+    
+    CheckML -- Pass --> CheckRep["5. Safe Browsing / GLEIF?"]:::process
+    CheckML -- Fail --> H1["HOLD (ML_FLAGGED)"]:::hold
+    
+    CheckRep -- Safe --> CheckDaily["6. Daily Budget OK? (Redis)"]:::process
+    CheckRep -- Flagged --> R4["REJECT (RISK_HIGH)"]:::reject
+    
+    CheckDaily -- Yes --> CheckApproval["7. Above Auto-Approval Limit?"]:::process
+    CheckDaily -- No --> R5["REJECT (LIMIT_EXCEEDED)"]:::reject
+    
+    CheckApproval -- Yes --> H2["HOLD (APPROVAL_REQUIRED)<br/>Ping Slack"]:::hold
+    CheckApproval -- No --> App1["APPROVE (POLICY_OK)"]:::allow
+    
+    H1 --> ManualReview["Human Review via Slack"]:::process
+    H2 --> ManualReview
+    
+    ManualReview -- Approve --> App2["APPROVE (HUMAN_OVERRIDE)"]:::allow
+    ManualReview -- Deny --> R6["REJECT (HUMAN_REJECTED)"]:::reject

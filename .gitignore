@@ -97,3 +97,6 @@ pnpm-lock.yaml
 apps/web/.next/
 apps/web/node_modules/
 OPENCLAW_PREP_CHECKPOINT.md
+
+# Internal docs
+docs/internal/

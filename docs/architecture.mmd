@@ -1,0 +1,42 @@
+graph TD
+    %% Styling
+    classDef mcp fill:#2d3748,stroke:#4a5568,color:#fff,rx:5,ry:5,stroke-width:2px;
+    classDef agent fill:#ebf8ff,stroke:#3182ce,color:#2b6cb0,rx:5,ry:5,stroke-width:2px;
+    classDef web fill:#f0fff4,stroke:#38a169,color:#276749,rx:5,ry:5,stroke-width:2px;
+    classDef external fill:#fff5f5,stroke:#e53e3e,color:#c53030,rx:5,ry:5,stroke-width:2px;
+    classDef db fill:#FAF5FF,stroke:#805AD5,color:#553C9A,shape:cylinder,stroke-width:2px;
+
+    subgraph "VyapaarClaw Enclave"
+        direction TB
+        
+        TUI["Terminal UI<br/>(Textual)"]:::web
+        Web["Web Dashboard<br/>(Next.js React)"]:::web
+        
+        Server["MCP Server Engine<br/>(FastAPI / MCP Async)"]:::mcp
+        
+        subgraph Agents
+            CFO["AI CFO Agent<br/>(Llama/Mistral)"]:::agent
+            Governance["Policy Validator"]:::agent
+        end
+        
+        DB[("PostgreSQL<br/>Audit & Policies")]:::db
+        Redis[("Redis Cache<br/>Rate Limits")]:::db
+    end
+
+    subgraph "External Providers"
+        Razorpay[Razorpay API]:::external
+        Slack[Slack Webhooks]:::external
+    end
+    
+    %% Connections
+    TUI <--> Server
+    Web <--> Server
+    
+    Server --> Agents
+    CFO <--> Governance
+    
+    Server <--> DB
+    Server <--> Redis
+    
+    Server <--> Razorpay
+    Server --> Slack
