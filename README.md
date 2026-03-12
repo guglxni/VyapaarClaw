@@ -43,7 +43,7 @@ A Next.js application providing:
 - **Dashboard** — Budget utilisation bars, decision stats, risk heatmap
 - **Chat** — Conversational interface to the AI CFO
 - **Agents** — Agent policies, trust tiers, budget health
-- **Audit Log** — Searchable governance decision history
+- **Audit Log** — Searchable governance decision history *(Driven by robust CRM Data Tables integrated directly from DenchClaw)*
 - **Cron Jobs** — Scheduled autonomous operations
 
 ### OpenClaw Integration
@@ -176,18 +176,18 @@ vyapaarclaw/
 
 ### Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `VYAPAAR_RAZORPAY_KEY_ID` | Yes | Razorpay API key |
-| `VYAPAAR_RAZORPAY_KEY_SECRET` | Yes | Razorpay API secret |
-| `VYAPAAR_RAZORPAY_WEBHOOK_SECRET` | Yes | Razorpay webhook HMAC secret |
-| `VYAPAAR_REDIS_URL` | Yes | Redis connection URL |
-| `VYAPAAR_PG_DSN` | Yes | PostgreSQL connection string |
-| `VYAPAAR_SAFE_BROWSING_KEY` | Yes | Google Safe Browsing API key |
-| `VYAPAAR_SLACK_BOT_TOKEN` | Yes | Slack bot token for Human-in-the-Loop |
-| `VYAPAAR_SLACK_CHANNEL_ID` | Yes | Slack channel ID for alerting |
-| `VYAPAAR_AZURE_OPENAI_ENDPOINT` | Yes | AI endpoint (Azure / Local MLX) |
-| `VYAPAAR_AZURE_OPENAI_API_KEY` | Yes | AI authentication key |
+| Variable | Description |
+|----------|-------------|
+| `VYAPAAR_RAZORPAY_KEY_ID` | Razorpay API key |
+| `VYAPAAR_RAZORPAY_KEY_SECRET` | Razorpay API secret |
+| `VYAPAAR_RAZORPAY_WEBHOOK_SECRET` | Razorpay webhook HMAC secret |
+| `VYAPAAR_REDIS_URL` | Redis connection URL |
+| `VYAPAAR_PG_DSN` | PostgreSQL connection string |
+| `VYAPAAR_SAFE_BROWSING_KEY` | Google Safe Browsing API key |
+| `VYAPAAR_SLACK_BOT_TOKEN` | Slack bot token for Human-in-the-Loop |
+| `VYAPAAR_SLACK_CHANNEL_ID` | Slack channel ID for alerting |
+| `VYAPAAR_AZURE_OPENAI_ENDPOINT` | AI endpoint (Azure / Local MLX) |
+| `VYAPAAR_AZURE_OPENAI_API_KEY` | AI authentication key |
 
 ### OpenClaw Profile
 
