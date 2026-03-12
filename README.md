@@ -1,5 +1,9 @@
 # VyapaarClaw
 
+<div align="center">
+  <img src="assets/logo.png" alt="VyapaarClaw Logo" width="400"/>
+</div>
+
 **Fully Managed OpenClaw Framework for AI Financial Governance.**
 The AI CFO for the agentic economy.
 

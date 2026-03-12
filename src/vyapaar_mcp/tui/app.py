@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import contextlib
 import os
-from datetime import datetime
 from typing import ClassVar
 
 from textual import work
@@ -55,8 +54,18 @@ class VyapaarClawTUI(App):
         self._health: dict = {}
 
     def compose(self) -> ComposeResult:
+        logo = """\
+[bold white]
+██    ██ ██    ██  █████  ██████   █████   █████  ██████   ██████ ██       █████  ██      ██
+██    ██  ██  ██  ██   ██ ██   ██ ██   ██ ██   ██ ██   ██ ██      ██      ██   ██ ██      ██
+██    ██   ████   ███████ ██████  ███████ ███████ ██████  ██      ██      ███████ ██  ██  ██
+ ██  ██     ██    ██   ██ ██      ██   ██ ██   ██ ██   ██ ██      ██      ██   ██ ██  ██  ██
+  ████      ██    ██   ██ ██      ██   ██ ██   ██ ██   ██  ██████ ███████ ██   ██  ████████
+[/]\
+"""
         yield Header()
         with Container(id="main"):
+            yield Static(logo, id="logo-art")
             yield StatsBar(id="stats-bar")
             with Container(id="content"):
                 yield self._build_dashboard()
@@ -101,10 +110,10 @@ class VyapaarClawTUI(App):
                         go=health.get("razorpay_bridge") == "connected",
                     )
                 else:
-                    self._load_demo_data()
+                    self._show_offline_state()
                     return
         except Exception:
-            self._load_demo_data()
+            self._show_offline_state()
             return
 
         with contextlib.suppress(Exception):
@@ -118,98 +127,33 @@ class VyapaarClawTUI(App):
                     self._decisions = audit_resp.json().get("entries", [])
 
         if not self._agents:
-            self._load_demo_data()
+            self._show_offline_state()
         else:
             self._render_agents()
             self._render_decisions()
             self._update_stats()
 
-    def _load_demo_data(self) -> None:
-        self._agents = [
-            {
-                "agent_id": "procurement-bot",
-                "daily_limit": 500000,
-                "current_spend": 320000,
-                "utilisation_pct": 64,
-                "health": "yellow",
-                "per_txn_limit": 100000,
-            },
-            {
-                "agent_id": "payroll-agent",
-                "daily_limit": 2500000,
-                "current_spend": 1800000,
-                "utilisation_pct": 72,
-                "health": "yellow",
-                "per_txn_limit": 500000,
-            },
-            {
-                "agent_id": "marketing-bot",
-                "daily_limit": 100000,
-                "current_spend": 15000,
-                "utilisation_pct": 15,
-                "health": "green",
-                "per_txn_limit": 25000,
-            },
-            {
-                "agent_id": "infra-agent",
-                "daily_limit": 1000000,
-                "current_spend": 890000,
-                "utilisation_pct": 89,
-                "health": "red",
-                "per_txn_limit": 200000,
-            },
-        ]
-        self._decisions = [
-            {
-                "payout_id": "pout_001",
-                "agent_id": "procurement-bot",
-                "amount": 45000,
-                "decision": "APPROVED",
-                "reason_code": "POLICY_OK",
-                "vendor_name": "Acme Corp",
-                "created_at": datetime.now().isoformat(),
-            },
-            {
-                "payout_id": "pout_002",
-                "agent_id": "infra-agent",
-                "amount": 250000,
-                "decision": "HELD",
-                "reason_code": "APPROVAL_REQUIRED",
-                "vendor_name": "CloudHost India",
-                "created_at": datetime.now().isoformat(),
-            },
-            {
-                "payout_id": "pout_003",
-                "agent_id": "marketing-bot",
-                "amount": 15000,
-                "decision": "APPROVED",
-                "reason_code": "POLICY_OK",
-                "vendor_name": "AdNetwork Pvt Ltd",
-                "created_at": datetime.now().isoformat(),
-            },
-            {
-                "payout_id": "pout_004",
-                "agent_id": "procurement-bot",
-                "amount": 120000,
-                "decision": "REJECTED",
-                "reason_code": "TXN_LIMIT_EXCEEDED",
-                "vendor_name": "Unknown Vendor",
-                "created_at": datetime.now().isoformat(),
-            },
-            {
-                "payout_id": "pout_005",
-                "agent_id": "payroll-agent",
-                "amount": 500000,
-                "decision": "APPROVED",
-                "reason_code": "POLICY_OK",
-                "vendor_name": "Salary Account",
-                "created_at": datetime.now().isoformat(),
-            },
-        ]
+    def _show_offline_state(self) -> None:
+        self._agents = []
+        self._decisions = []
         self._update_health(mcp=False, redis=False, pg=False, go=False)
-        self._render_agents()
-        self._render_decisions()
         self._update_stats()
+
+        # Display connection unavailable in panels
+        container = self.query_one("#budget-cards", Container)
+        container.remove_children()
+        container.mount(
+            Static(
+                "[red bold]CONNECTION UNAVAILABLE[/]\nMCP server is unreachable or offline.",
+                classes="offline-msg",
+            )
+        )
+
+        feed = self.query_one("#decision-feed", Container)
+        feed.remove_children()
+        feed.mount(
+            Static("[red bold]OFFLINE[/]\nUnable to fetch latest decisions.", classes="offline-msg")
+        )
 
     def _render_agents(self) -> None:
         container = self.query_one("#budget-cards", Container)

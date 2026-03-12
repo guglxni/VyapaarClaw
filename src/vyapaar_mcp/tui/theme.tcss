@@ -22,6 +22,21 @@ Footer {
     padding: 1;
 }
 
+#logo-art {
+    content-align: center middle;
+    text-align: center;
+    color: #f1f5f9;
+    height: auto;
+    margin-bottom: 2;
+}
+
+.offline-msg {
+    content-align: center middle;
+    text-align: center;
+    height: 1fr;
+    padding: 2;
+}
+
 #stats-bar {
     height: auto;
     margin-bottom: 1;

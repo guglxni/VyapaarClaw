@@ -142,54 +142,84 @@ function badgeClass(d: string): string {
   }
 }
 
+import { DataTable } from "../components/data-table";
+import { createColumnHelper, ColumnDef } from "@tanstack/react-table";
+
+const columnHelper = createColumnHelper<AuditEntry>();
+
+const columns: ColumnDef<AuditEntry, any>[] = [
+  columnHelper.accessor("decision", {
+    header: "Decision",
+    cell: (info) => (
+      <div className="flex items-center gap-2">
+        {decisionIcon(info.getValue())}
+        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${badgeClass(info.getValue())}`}>
+          {info.getValue()}
+        </span>
+      </div>
+    ),
+  }),
+  columnHelper.accessor("agent_id", {
+    header: "Agent",
+    cell: (info) => <span className="text-[var(--color-text-muted)]">{info.getValue()}</span>,
+  }),
+  columnHelper.accessor("vendor_name", {
+    header: "Vendor",
+    cell: (info) => info.getValue() || "—",
+  }),
+  columnHelper.accessor("amount", {
+    header: "Amount",
+    cell: (info) => <div className="text-right font-medium tabular-nums">{formatINR(info.getValue())}</div>,
+  }),
+  columnHelper.accessor("reason_code", {
+    header: "Reason",
+    cell: (info) => (
+      <div>
+        <div className="text-[var(--color-text-muted)] text-xs">{info.getValue()}</div>
+        <div className="text-[var(--color-text-dim)] text-[11px] mt-0.5 max-w-[300px] truncate">
+          {info.row.original.reason_detail}
+        </div>
+      </div>
+    ),
+  }),
+  columnHelper.accessor("created_at", {
+    header: "Time",
+    cell: (info) => (
+      <div className="text-right text-[var(--color-text-dim)] text-xs whitespace-nowrap">
+        {formatTime(info.getValue())}
+        <div className="text-[10px]">{info.row.original.processing_ms}ms</div>
+      </div>
+    ),
+  }),
+];
+
 export default function AuditPage() {
   const [filter, setFilter] = useState<string>("all");
-  const [search, setSearch] = useState("");
 
   const filtered = DEMO_ENTRIES.filter((e) => {
     if (filter !== "all" && e.decision !== filter) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      return (
-        e.agent_id.toLowerCase().includes(q) ||
-        e.payout_id.toLowerCase().includes(q) ||
-        (e.vendor_name?.toLowerCase().includes(q) ?? false) ||
-        e.reason_code.toLowerCase().includes(q)
-      );
-    }
     return true;
   });
 
   return (
     <AppShell>
       <div className="p-6 max-w-[1200px] space-y-5">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Audit Log</h1>
-          <p className="text-sm text-[var(--color-text-muted)] mt-0.5">
-            {DEMO_ENTRIES.length} governance decisions recorded
-          </p>
-        </div>
-
-        {/* Filters */}
-        <div className="flex items-center gap-3">
-          <div className="relative flex-1 max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-dim)]" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by agent, vendor, payout ID..."
-              className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg pl-9 pr-3 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-dim)] focus:outline-none focus:border-[var(--color-accent)]/50"
-            />
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight">Audit Log</h1>
+            <p className="text-sm text-[var(--color-text-muted)] mt-0.5">
+              {DEMO_ENTRIES.length} governance decisions recorded
+            </p>
           </div>
-          <div className="flex gap-1">
+          <div className="flex items-center gap-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg p-1">
             {["all", "APPROVED", "REJECTED", "HELD"].map((f) => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${
                   filter === f
-                    ? "border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]"
-                    : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)]"
+                    ? "bg-[var(--color-bg)] text-[var(--color-text)] shadow-sm"
+                    : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
                 }`}
               >
                 {f === "all" ? "All" : f}
@@ -198,79 +228,8 @@ export default function AuditPage() {
           </div>
         </div>
 
-        {/* Table */}
-        <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--color-border)]">
-                <th className="text-left text-[10px] uppercase tracking-wider text-[var(--color-text-dim)] px-4 py-3">
-                  Decision
-                </th>
-                <th className="text-left text-[10px] uppercase tracking-wider text-[var(--color-text-dim)] px-4 py-3">
-                  Agent
-                </th>
-                <th className="text-left text-[10px] uppercase tracking-wider text-[var(--color-text-dim)] px-4 py-3">
-                  Vendor
-                </th>
-                <th className="text-right text-[10px] uppercase tracking-wider text-[var(--color-text-dim)] px-4 py-3">
-                  Amount
-                </th>
-                <th className="text-left text-[10px] uppercase tracking-wider text-[var(--color-text-dim)] px-4 py-3">
-                  Reason
-                </th>
-                <th className="text-right text-[10px] uppercase tracking-wider text-[var(--color-text-dim)] px-4 py-3">
-                  Time
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((entry) => (
-                <tr
-                  key={entry.payout_id}
-                  className="border-b border-[var(--color-border-subtle)] last:border-b-0 hover:bg-[var(--color-surface-hover)] transition-colors"
-                >
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      {decisionIcon(entry.decision)}
-                      <span
-                        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${badgeClass(entry.decision)}`}
-                      >
-                        {entry.decision}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-[var(--color-text-muted)]">
-                    {entry.agent_id}
-                  </td>
-                  <td className="px-4 py-3">
-                    {entry.vendor_name || "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right font-medium tabular-nums">
-                    {formatINR(entry.amount)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-[var(--color-text-muted)] text-xs">
-                      {entry.reason_code}
-                    </div>
-                    <div className="text-[var(--color-text-dim)] text-[11px] mt-0.5 max-w-[300px] truncate">
-                      {entry.reason_detail}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-right text-[var(--color-text-dim)] text-xs whitespace-nowrap">
-                    {formatTime(entry.created_at)}
-                    <div className="text-[10px]">{entry.processing_ms}ms</div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {filtered.length === 0 && (
-            <div className="text-center py-12 text-sm text-[var(--color-text-dim)]">
-              No matching entries found.
-            </div>
-          )}
-        </div>
+        {/* CRM Data Table inside Audit Page */}
+        <DataTable columns={columns} data={filtered} searchPlaceholder="Search audit logs..." />
       </div>
     </AppShell>
   );
