@@ -106,11 +106,9 @@ class AgentBudgetCard(Widget):
 
     def on_mount(self) -> None:
         util = self._agent.get("utilisation_pct", 0)
-        try:
+        with contextlib.suppress(Exception):
             bar = self.query_one(ProgressBar)
             bar.advance(util)
-        except Exception:
-            pass
 
 
 class HealthIndicator(Widget):
@@ -139,11 +137,9 @@ class HealthIndicator(Widget):
             "checking": "[bold yellow]○[/]",
         }
         icon = icons.get(self.status, icons["checking"])
-        try:
+        with contextlib.suppress(Exception):
             display = self.query_one("#health-display", Static)
             display.update(f"{icon} {self._service_name}")
-        except Exception:
-            pass
 
     def on_mount(self) -> None:
         self._refresh()

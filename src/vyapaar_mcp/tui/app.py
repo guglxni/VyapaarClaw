@@ -9,6 +9,7 @@ A Textual app providing real-time visibility into:
 
 from __future__ import annotations
 
+import contextlib
 import os
 from datetime import datetime
 from typing import ClassVar
@@ -106,7 +107,7 @@ class VyapaarClawTUI(App):
             self._load_demo_data()
             return
 
-        try:
+        with contextlib.suppress(Exception):
             async with httpx.AsyncClient(timeout=5.0) as client:
                 agents_resp = await client.get(f"{mcp_url}/api/agents")
                 if agents_resp.status_code == 200:
@@ -115,8 +116,6 @@ class VyapaarClawTUI(App):
                 audit_resp = await client.get(f"{mcp_url}/api/audit")
                 if audit_resp.status_code == 200:
                     self._decisions = audit_resp.json().get("entries", [])
-        except Exception:
-            pass
 
         if not self._agents:
             self._load_demo_data()
@@ -264,11 +263,9 @@ class VyapaarClawTUI(App):
             "health-go": go,
         }
         for widget_id, connected in mapping.items():
-            try:
+            with contextlib.suppress(Exception):
                 indicator = self.query_one(f"#{widget_id}", HealthIndicator)
                 indicator.set_status("connected" if connected else "disconnected")
-            except Exception:
-                pass
 
     def action_refresh(self) -> None:
         self.notify("Refreshing data...")
