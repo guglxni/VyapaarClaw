@@ -7,7 +7,7 @@ RUN pip install --no-cache-dir uv
 
 # Copy project config and lock file, install dependencies
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --no-install-project
 
 # Stage 2: Runtime (slim)
 FROM python:3.12-slim AS runtime
