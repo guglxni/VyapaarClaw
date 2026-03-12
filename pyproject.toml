@@ -39,7 +39,7 @@ vyapaarclaw = "vyapaar_mcp:main"
 vyapaarclaw-tui = "vyapaar_mcp.tui.app:run_tui"
 
 [build-system]
-requires = ["uv_build>=0.8.11,<0.9.0"]
+requires = ["uv_build>=0.8.11,<0.11.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
