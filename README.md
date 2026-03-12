@@ -1,5 +1,3 @@
-# VyapaarClaw
-
 <div align="center">
   <img src="assets/logo.png" alt="VyapaarClaw Logo" width="400"/>
 </div>
