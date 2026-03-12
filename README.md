@@ -75,7 +75,7 @@ Every transaction passes through a 6-layer verification:
 - **Node.js 22+** and pnpm
 - **Redis** — Budget tracking and caching
 - **PostgreSQL** — Audit logs and policies
-- **OpenClaw** (optional) — For gateway, Telegram, and cron features
+- **OpenClaw** — Required core framework for the AI agents, gateway, Slack integration, and autonomous cron features
 
 ### Installation
 
@@ -180,14 +180,14 @@ vyapaarclaw/
 |----------|----------|-------------|
 | `VYAPAAR_RAZORPAY_KEY_ID` | Yes | Razorpay API key |
 | `VYAPAAR_RAZORPAY_KEY_SECRET` | Yes | Razorpay API secret |
+| `VYAPAAR_RAZORPAY_WEBHOOK_SECRET` | Yes | Razorpay webhook HMAC secret |
 | `VYAPAAR_REDIS_URL` | Yes | Redis connection URL |
 | `VYAPAAR_PG_DSN` | Yes | PostgreSQL connection string |
-| `VYAPAAR_SAFE_BROWSING_KEY` | No | Google Safe Browsing API key |
-| `VYAPAAR_WEBHOOK_SECRET` | No | Razorpay webhook HMAC secret |
-| `TELEGRAM_BOT_TOKEN` | No | Telegram bot for HITL approvals |
-| `VYAPAAR_SLACK_TOKEN` | No | Slack bot for HITL approvals |
-| `VYAPAAR_AZURE_ENDPOINT` | No | Azure OpenAI endpoint |
-| `VYAPAAR_AZURE_KEY` | No | Azure OpenAI key |
+| `VYAPAAR_SAFE_BROWSING_KEY` | Yes | Google Safe Browsing API key |
+| `VYAPAAR_SLACK_BOT_TOKEN` | Yes | Slack bot token for Human-in-the-Loop |
+| `VYAPAAR_SLACK_CHANNEL_ID` | Yes | Slack channel ID for alerting |
+| `VYAPAAR_AZURE_OPENAI_ENDPOINT` | Yes | AI endpoint (Azure / Local MLX) |
+| `VYAPAAR_AZURE_OPENAI_API_KEY` | Yes | AI authentication key |
 
 ### OpenClaw Profile
 
