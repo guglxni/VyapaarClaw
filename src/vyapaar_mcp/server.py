@@ -108,8 +108,10 @@ def _require(**services: Any) -> None:
 # ================================================================
 
 
+import typing
+
 @asynccontextmanager
-async def _lifespan(server: FastMCP):
+async def _lifespan(server: FastMCP) -> typing.AsyncGenerator[None, None]:
     """FastMCP lifespan context manager — runs startup/shutdown."""
     await _startup()
     try:
@@ -132,7 +134,7 @@ mcp = FastMCP(
 )
 
 
-@mcp.custom_route("/health", methods=["GET"])
+@mcp.custom_route("/health", methods=["GET"]) # type: ignore[misc]
 async def health_endpoint(request: Request) -> JSONResponse:
     """HTTP Health Check for monitoring, load balancers, and web UI."""
     redis_ok = await _redis.ping() if _redis else False
@@ -1012,7 +1014,7 @@ async def handle_slack_action(
         result = await _razorpay.approve_payout(payout_id)
         action_label = "approved"
     elif action_id == "reject_payout":
-        result = await _razorpay.reject_payout(payout_id)
+        result = await _razorpay.reject_payout(payout_id, reason="Rejected via Slack by human operator")
         action_label = "rejected"
 
         # --- Budget Rollback for HELD payouts ---
@@ -1103,7 +1105,7 @@ async def handle_telegram_action(
         result = await _razorpay.approve_payout(payout_id)
         action_label = "approved"
     elif action_id == "reject_payout":
-        result = await _razorpay.reject_payout(payout_id)
+        result = await _razorpay.reject_payout(payout_id, reason="Rejected via Telegram by human operator")
         action_label = "rejected"
 
         if _postgres and _redis:
@@ -2031,7 +2033,7 @@ def run_server_sync() -> None:
 
         uvicorn.run(starlette_app, host=host, port=port)
     else:
-        mcp.run(transport=transport_name)
+        mcp.run(transport=transport_name) # type: ignore[arg-type]
 
 
 # Allow direct execution

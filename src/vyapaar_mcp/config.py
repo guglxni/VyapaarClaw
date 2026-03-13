@@ -7,8 +7,8 @@ In production on Archestra, secrets are injected via Vault/K8s Secrets.
 
 from __future__ import annotations
 
-from pydantic import ConfigDict, Field
-from pydantic_settings import BaseSettings
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class VyapaarConfig(BaseSettings):
@@ -18,7 +18,7 @@ class VyapaarConfig(BaseSettings):
     Example: VYAPAAR_RAZORPAY_KEY_ID -> razorpay_key_id
     """
 
-    model_config = ConfigDict(
+    model_config = SettingsConfigDict(
         env_prefix="VYAPAAR_",
         case_sensitive=False,
         env_file=".env",

@@ -59,7 +59,7 @@ class RazorpayActions:
             try:
                 # Razorpay SDK is synchronous — run in thread pool
                 loop = asyncio.get_running_loop()
-                result = await loop.run_in_executor(None, func, *args)  # type: ignore[arg-type]
+                result: dict[str, object] = await loop.run_in_executor(None, func, *args)  # type: ignore[arg-type, assignment]
                 logger.info(
                     "%s succeeded on attempt %d for args: %s",
                     operation,

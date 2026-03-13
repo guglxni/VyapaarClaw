@@ -116,7 +116,7 @@ class HealthIndicator(Widget):
 
     status: reactive[str] = reactive("checking")
 
-    def __init__(self, service_name: str, status: str = "checking", **kwargs) -> None:  # type: ignore[override]
+    def __init__(self, service_name: str, status: str = "checking", **kwargs: object) -> None:  # type: ignore[override]
         super().__init__(**kwargs)
         self._service_name = service_name
         self.status = status
