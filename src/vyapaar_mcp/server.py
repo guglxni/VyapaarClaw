@@ -132,7 +132,7 @@ mcp = FastMCP(
 )
 
 
-@mcp.custom_route("/health", methods=["GET"]) # type: ignore[misc]
+@mcp.custom_route("/health", methods=["GET"])  # type: ignore[misc]
 async def health_endpoint(request: Request) -> JSONResponse:
     """HTTP Health Check for monitoring, load balancers, and web UI."""
     redis_ok = await _redis.ping() if _redis else False
@@ -2035,7 +2035,7 @@ def run_server_sync() -> None:
 
         uvicorn.run(starlette_app, host=host, port=port)
     else:
-        mcp.run(transport=transport_name) # type: ignore[arg-type]
+        mcp.run(transport=transport_name)  # type: ignore[arg-type]
 
 
 # Allow direct execution
