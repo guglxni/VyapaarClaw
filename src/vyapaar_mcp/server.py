@@ -108,10 +108,8 @@ def _require(**services: Any) -> None:
 # ================================================================
 
 
-import typing
-
 @asynccontextmanager
-async def _lifespan(server: FastMCP) -> typing.AsyncGenerator[None, None]:
+async def _lifespan(server: FastMCP) -> Any:
     """FastMCP lifespan context manager — runs startup/shutdown."""
     await _startup()
     try:
@@ -1014,7 +1012,9 @@ async def handle_slack_action(
         result = await _razorpay.approve_payout(payout_id)
         action_label = "approved"
     elif action_id == "reject_payout":
-        result = await _razorpay.reject_payout(payout_id, reason="Rejected via Slack by human operator")
+        result = await _razorpay.reject_payout(
+            payout_id, reason="Rejected via Slack by human operator"
+        )
         action_label = "rejected"
 
         # --- Budget Rollback for HELD payouts ---
@@ -1105,7 +1105,9 @@ async def handle_telegram_action(
         result = await _razorpay.approve_payout(payout_id)
         action_label = "approved"
     elif action_id == "reject_payout":
-        result = await _razorpay.reject_payout(payout_id, reason="Rejected via Telegram by human operator")
+        result = await _razorpay.reject_payout(
+            payout_id, reason="Rejected via Telegram by human operator"
+        )
         action_label = "rejected"
 
         if _postgres and _redis:
