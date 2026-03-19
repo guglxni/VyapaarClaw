@@ -843,6 +843,75 @@ async def check_vendor_reputation(url: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+async def delegate_agent_budget(
+    parent_id: str,
+    child_id: str,
+    limit: int,
+    hours: int = 24,
+) -> dict[str, Any]:
+    """Temporarily delegate a portion of an agent's budget to a sub-agent.
+
+    Showcases OpenClaw's hierarchical multi-agent capability. The child inherits
+    allowed/blocked domains from the parent.
+
+    Args:
+        parent_id: The ID of the delegating agent.
+        child_id: The ID of the sub-agent receiving funds.
+        limit: Amount to delegate in paise (₹500 = 50000).
+        hours: How long the delegation is valid (default 24).
+    """
+    _require(postgres=_postgres, redis=_redis)
+    from datetime import datetime, timedelta, timezone
+
+    # Verify parent has a policy
+    parent_policy = await _postgres.get_agent_policy(parent_id)
+    if not parent_policy:
+        return {"error": f"Parent agent '{parent_id}' has no active governance policy."}
+
+    # Verify parent has enough remaining budget today
+    spent_today = await _redis.get_daily_spend(parent_id)
+    remaining = parent_policy.daily_limit - spent_today
+    if limit > remaining:
+        return {
+            "error": "Insufficient parent budget.",
+            "parent_limit": parent_policy.daily_limit,
+            "parent_spent": spent_today,
+            "requested_delegation": limit,
+        }
+
+    # Create the temporary child policy
+    valid_until = datetime.now(timezone.utc) + timedelta(hours=hours)
+    
+    child_policy = AgentPolicy(
+        agent_id=child_id,
+        daily_limit=limit,
+        per_txn_limit=parent_policy.per_txn_limit,
+        require_approval_above=parent_policy.require_approval_above,
+        allowed_domains=parent_policy.allowed_domains,
+        blocked_domains=parent_policy.blocked_domains,
+        parent_id=parent_id,
+        valid_until=valid_until,
+    )
+
+    await _postgres.upsert_agent_policy(child_policy)
+
+    # Immediately lock up the parent's budget for the delegated amount
+    # (By checking out the budget using the atomic lua script)
+    locked = await _redis.check_budget_atomic(parent_id, limit, parent_policy.daily_limit)
+    if not locked:
+        return {"error": "Failed to lock parent budget due to concurrent spending."}
+
+    return {
+        "status": "delegated",
+        "parent_id": parent_id,
+        "child_id": child_id,
+        "delegated_limit": limit,
+        "valid_until": valid_until.isoformat(),
+        "parent_remaining": remaining - limit,
+    }
+
+
+@mcp.tool()
 async def get_agent_budget(agent_id: str) -> dict[str, Any]:
     """Get current daily spend and remaining budget for an agent.
 

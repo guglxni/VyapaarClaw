@@ -202,6 +202,8 @@ class AgentPolicy(BaseModel):
     )
     allowed_domains: list[str] = Field(default_factory=list)
     blocked_domains: list[str] = Field(default_factory=list)
+    parent_id: str | None = Field(default=None, description="Parent agent ID for budget sub-delegation")
+    valid_until: datetime | None = Field(default=None, description="Expiration date for temporary delegations")
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
