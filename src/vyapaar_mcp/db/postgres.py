@@ -69,6 +69,8 @@ class PostgresClient:
                     require_approval_above BIGINT DEFAULT NULL,
                     allowed_domains TEXT[]       DEFAULT '{}',
                     blocked_domains TEXT[]       DEFAULT '{}',
+                    parent_id       VARCHAR(128) DEFAULT NULL,
+                    valid_until     TIMESTAMPTZ  DEFAULT NULL,
                     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
                     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
                 );
@@ -124,6 +126,8 @@ class PostgresClient:
                 require_approval_above=row["require_approval_above"],
                 allowed_domains=list(row["allowed_domains"] or []),
                 blocked_domains=list(row["blocked_domains"] or []),
+                parent_id=row["parent_id"],
+                valid_until=row["valid_until"],
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
             )
@@ -135,14 +139,16 @@ class PostgresClient:
                 """
                 INSERT INTO agent_policies
                     (agent_id, daily_limit, per_txn_limit, require_approval_above,
-                     allowed_domains, blocked_domains, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, NOW())
+                     allowed_domains, blocked_domains, parent_id, valid_until, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
                 ON CONFLICT (agent_id) DO UPDATE SET
                     daily_limit = EXCLUDED.daily_limit,
                     per_txn_limit = EXCLUDED.per_txn_limit,
                     require_approval_above = EXCLUDED.require_approval_above,
                     allowed_domains = EXCLUDED.allowed_domains,
                     blocked_domains = EXCLUDED.blocked_domains,
+                    parent_id = EXCLUDED.parent_id,
+                    valid_until = EXCLUDED.valid_until,
                     updated_at = NOW()
                 """,
                 policy.agent_id,
@@ -151,6 +157,8 @@ class PostgresClient:
                 policy.require_approval_above,
                 policy.allowed_domains,
                 policy.blocked_domains,
+                policy.parent_id,
+                policy.valid_until,
             )
         logger.info("Policy upserted for agent: %s", policy.agent_id)
         return policy
@@ -205,6 +213,8 @@ class PostgresClient:
                 "require_approval_above": row["require_approval_above"],
                 "allowed_domains": list(row["allowed_domains"] or []),
                 "blocked_domains": list(row["blocked_domains"] or []),
+                "parent_id": row["parent_id"],
+                "valid_until": row["valid_until"].isoformat() if row["valid_until"] else None,
                 "created_at": row["created_at"].isoformat() if row["created_at"] else None,
                 "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
             }
