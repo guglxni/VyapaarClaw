@@ -16,13 +16,13 @@ npx vyapaarclaw start        # Launch MCP server + Web UI + OpenClaw gateway
 
 ## Architecture
 
-Follows a heavily guarded 6-layer protocol level execution topology:
+Three-layer AI CFO architecture: **KNOW** (intelligence) → **GUARD** (governance) → **ACT** (execution):
 
-![VyapaarClaw Architecture](docs/architecture.png)
+![VyapaarClaw Architecture](docs/diagrams/architecture_full.png)
 
 ## Features
 
-### 25 MCP Governance Tools
+### 37 MCP Tools (25 Governance + 12 CFO Intelligence)
 
 | Category | Tools |
 |----------|-------|
@@ -33,6 +33,18 @@ Follows a heavily guarded 6-layer protocol level execution topology:
 | **Monitoring** | `list_agents`, `forecast_cash_flow`, `get_audit_log` |
 | **Payments** | `create_payout`, `get_payout_status`, `process_webhook` |
 | **Notifications** | `send_slack_approval`, `send_telegram_alert` |
+| **🆕 India Tax** | `validate_gstin`, `calculate_gst`, `check_tds` |
+| **🆕 Banking** | `validate_bank_account` (IFSC/account validation) |
+| **🆕 Multi-Currency** | `convert_currency` (Frankfurter FX, ECB data) |
+| **🆕 Calendar** | `get_indian_financial_calendar` (holidays, deadlines, T+N settlement) |
+| **🆕 Categorization** | `categorize_transaction` (auto-tagging spending categories) |
+| **🆕 Forecasting** | `forecast_budget_runway` (EWMA trend, runway days, severity) |
+| **🆕 Accounting** | `track_payout_in_ledger`, `get_trial_balance`, `get_income_statement` |
+| **🆕 Reports** | `generate_compliance_report` (PDF with charts) |
+| **🆕 Fraud** | `detect_fraud_network` (graph-based: shared PAN, circular payments) |
+| **🆕 Contracts** | `analyze_contract` (payment terms, penalty clauses, SLA) |
+| **🆕 Sanctions** | `screen_vendor_sanctions` (OpenSanctions watchlists) |
+| **🆕 Workflow** | `manage_payout_workflow` (formal state machine approvals) |
 
 ### Web Dashboard
 

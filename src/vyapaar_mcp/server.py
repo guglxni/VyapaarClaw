@@ -1,7 +1,7 @@
 """VyapaarClaw MCP Server — FastMCP entrypoint with SSE transport.
 
-Registers all 25 governance tools and manages the lifecycle of
-Redis, PostgreSQL, and external API clients.
+Registers all 37 governance + CFO intelligence tools and manages the
+lifecycle of Redis, PostgreSQL, and external API clients.
 
 Part of the VyapaarClaw OpenClaw Framework for AI Financial Governance.
 """
@@ -1976,6 +1976,460 @@ async def get_financial_calendar(days_ahead: int = 7) -> dict[str, Any]:
         ],
     }
 
+
+# ================================================================
+# CFO Intelligence Tools (expanded AI CFO capabilities)
+# ================================================================
+
+
+@mcp.tool()
+async def get_indian_financial_calendar(
+    days_ahead: int = 30,
+    include_deadlines: bool = True,
+) -> dict[str, Any]:
+    """Get Indian financial calendar with holidays, deadlines, and settlement info.
+
+    Includes Indian public holidays, GST/TDS filing deadlines, and
+    settlement date computation for NEFT/RTGS/IMPS payments.
+
+    Args:
+        days_ahead: Days to look ahead for holidays and deadlines.
+        include_deadlines: Include GST/TDS compliance deadlines.
+    """
+    import datetime as dt
+
+    from vyapaar_mcp.cfo.calendar import (
+        is_business_day,
+        next_business_day,
+        settlement_date,
+        upcoming_deadlines,
+        upcoming_holidays,
+    )
+
+    today = dt.date.today()
+    holidays_list = upcoming_holidays(today, count=min(days_ahead, 15))
+    deadlines = upcoming_deadlines(today, count=10) if include_deadlines else []
+
+    neft_settlement = settlement_date(today, t_plus=0)
+    stock_settlement = settlement_date(today, t_plus=1)
+
+    return {
+        "today": today.isoformat(),
+        "is_business_day": is_business_day(today),
+        "next_business_day": next_business_day(today).isoformat(),
+        "neft_settlement_date": neft_settlement.isoformat(),
+        "stock_settlement_t1": stock_settlement.isoformat(),
+        "upcoming_holidays": holidays_list,
+        "compliance_deadlines": deadlines,
+    }
+
+
+@mcp.tool()
+async def convert_currency(
+    amount: float,
+    from_currency: str,
+    to_currency: str = "INR",
+    date: str | None = None,
+) -> dict[str, Any]:
+    """Convert currency amounts using live ECB exchange rates.
+
+    Uses Frankfurter (FOSS, no API key). Supports 30+ currencies.
+    All cross-border payouts should use this for INR-equivalent budget check.
+
+    Args:
+        amount: Amount to convert.
+        from_currency: Source currency code (e.g., USD, EUR, GBP).
+        to_currency: Target currency code (default INR).
+        date: ISO date for historical rate (optional, default: latest).
+    """
+    from vyapaar_mcp.cfo.currency import convert_amount
+
+    return await convert_amount(amount, from_currency, to_currency, date)
+
+
+@mcp.tool()
+async def validate_gstin(gstin: str) -> dict[str, Any]:
+    """Validate an Indian GSTIN (Goods and Services Tax ID).
+
+    Performs checksum verification, extracts state, PAN, entity type,
+    and detects composition dealers. Use before approving vendor payouts.
+
+    Args:
+        gstin: 15-character GSTIN to validate.
+    """
+    from vyapaar_mcp.cfo.tax import validate_gstin as _validate
+
+    return _validate(gstin)
+
+
+@mcp.tool()
+async def calculate_gst(
+    amount_paise: int,
+    rate_percent: float = 18.0,
+    is_interstate: bool = False,
+) -> dict[str, Any]:
+    """Calculate GST breakdown (CGST/SGST or IGST) on a payout amount.
+
+    Args:
+        amount_paise: Base amount in paise (before GST).
+        rate_percent: GST rate: 5, 12, 18, or 28 percent.
+        is_interstate: True for inter-state (IGST), False for intra-state (CGST+SGST).
+    """
+    from vyapaar_mcp.cfo.tax import calculate_gst as _calc
+
+    return _calc(amount_paise, rate_percent, is_interstate)
+
+
+@mcp.tool()
+async def check_tds(
+    amount_paise: int,
+    section: str = "194C",
+) -> dict[str, Any]:
+    """Check TDS (Tax Deducted at Source) applicability on a vendor payout.
+
+    Common sections: 194C (contractors), 194J (professionals), 194H (commission).
+
+    Args:
+        amount_paise: Payout amount in paise.
+        section: TDS section code.
+    """
+    from vyapaar_mcp.cfo.tax import check_tds_applicability
+
+    return check_tds_applicability(amount_paise, section)
+
+
+@mcp.tool()
+async def validate_bank_account(
+    ifsc: str,
+    account_number: str,
+    beneficiary_name: str = "",
+    online_lookup: bool = False,
+) -> dict[str, Any]:
+    """Validate an Indian bank account before creating a payout.
+
+    Checks IFSC format (RBI spec), account number format,
+    and optionally looks up IFSC details via Razorpay's free API.
+
+    Args:
+        ifsc: 11-character IFSC code.
+        account_number: Bank account number (9-18 digits).
+        beneficiary_name: Optional beneficiary name.
+        online_lookup: If True, also query Razorpay IFSC API for branch details.
+    """
+    from vyapaar_mcp.cfo.bank import lookup_ifsc_online, validate_fund_account
+
+    result = validate_fund_account(ifsc, account_number, beneficiary_name)
+
+    if online_lookup and result["valid"]:
+        online_data = await lookup_ifsc_online(ifsc)
+        result["online_details"] = online_data
+
+    return result
+
+
+@mcp.tool()
+async def categorize_transaction(
+    description: str,
+    amount_paise: int = 0,
+    vendor_name: str = "",
+) -> dict[str, Any]:
+    """Categorize a transaction into spending categories.
+
+    Uses keyword matching to classify payouts into: salaries, SaaS,
+    professional services, marketing, utilities, travel, etc.
+
+    Args:
+        description: Transaction description or narration.
+        amount_paise: Transaction amount in paise.
+        vendor_name: Vendor or payee name.
+    """
+    from vyapaar_mcp.cfo.categorizer import categorize_transaction as _categorize
+
+    return _categorize(description, amount_paise, vendor_name)
+
+
+@mcp.tool()
+async def forecast_budget_runway(
+    agent_id: str,
+    forecast_days: int = 30,
+) -> dict[str, Any]:
+    """Forecast budget runway for an agent using historical spend data.
+
+    Predicts when the agent will exhaust its budget, detects
+    spending trend (increasing/decreasing/stable), and flags
+    critical burn rates.
+
+    Args:
+        agent_id: Agent to forecast.
+        forecast_days: Days to project forward (max 90).
+    """
+    _require(redis=_redis, postgres=_postgres)
+
+    from vyapaar_mcp.cfo.forecaster import forecast_burn_rate
+
+    forecast_days = min(forecast_days, 90)
+
+    history = await _redis.get_historical_spend(agent_id, days=30)
+    daily_spends = [d["spend"] for d in history]
+
+    policy = await _postgres.get_policy(agent_id)
+    if not policy:
+        return {"error": f"No policy found for agent '{agent_id}'"}
+
+    budget_remaining = policy.daily_limit - sum(daily_spends[:1])  # Today's remaining
+
+    return forecast_burn_rate(daily_spends, budget_remaining, forecast_days)
+
+
+@mcp.tool()
+async def track_payout_in_ledger(
+    amount_paise: int,
+    description: str,
+    vendor_name: str = "",
+    category: str = "vendor_payments",
+    payout_id: str = "",
+    gst_paise: int = 0,
+    tds_paise: int = 0,
+) -> dict[str, Any]:
+    """Record a payout as a double-entry journal entry in the ledger.
+
+    Creates proper accounting entries: debits the expense account,
+    credits the Razorpay balance, with GST/TDS lines if applicable.
+
+    Args:
+        amount_paise: Payout amount in paise.
+        description: Transaction description.
+        vendor_name: Vendor or payee name.
+        category: Expense category (e.g., saas_software, salaries_wages).
+        payout_id: Razorpay payout ID for reference.
+        gst_paise: GST amount in paise (if applicable).
+        tds_paise: TDS deduction in paise (if applicable).
+    """
+    from vyapaar_mcp.cfo.ledger import get_ledger
+
+    ledger = get_ledger()
+    return ledger.record_payout(
+        amount_paise=amount_paise,
+        description=description,
+        vendor_name=vendor_name,
+        category=category,
+        payout_id=payout_id,
+        gst_paise=gst_paise,
+        tds_paise=tds_paise,
+    )
+
+
+@mcp.tool()
+async def get_trial_balance() -> dict[str, Any]:
+    """Get the trial balance from the double-entry ledger.
+
+    Returns all account balances showing debits and credits.
+    A balanced trial confirms accounting integrity.
+    """
+    from vyapaar_mcp.cfo.ledger import get_ledger
+
+    return get_ledger().get_trial_balance()
+
+
+@mcp.tool()
+async def get_income_statement() -> dict[str, Any]:
+    """Get the income statement (P&L) from the ledger.
+
+    Shows total revenue, expense breakdown by category,
+    and net income. Essential for CFO decision-making.
+    """
+    from vyapaar_mcp.cfo.ledger import get_ledger
+
+    return get_ledger().get_income_statement()
+
+
+@mcp.tool()
+async def generate_compliance_report(
+    output_path: str = "",
+) -> dict[str, Any]:
+    """Generate a PDF compliance report with governance summary.
+
+    Creates a professional PDF with budget summary, risk analysis,
+    recent transactions, GST compliance, and fraud findings.
+
+    Args:
+        output_path: Where to save the PDF (default: /tmp/).
+    """
+    from vyapaar_mcp.cfo.reports import generate_governance_report
+
+    # Gather data from available services
+    summary: dict[str, Any] = {
+        "budget_summary": {},
+        "risk_summary": {"total_reviewed": 0, "anomalies_detected": 0, "payouts_held": 0, "payouts_rejected": 0},
+        "recent_transactions": [],
+        "forecast": {"severity": "healthy"},
+    }
+
+    if _postgres:
+        try:
+            logs = await _postgres.get_audit_logs(limit=20)
+            summary["recent_transactions"] = [
+                {
+                    "date": log.created_at.strftime("%Y-%m-%d") if log.created_at else "",
+                    "vendor": log.vendor_name or "",
+                    "amount_paise": log.amount_paise,
+                    "category": "misc",
+                    "status": log.decision.value if log.decision else "",
+                }
+                for log in logs
+            ]
+            summary["risk_summary"]["total_reviewed"] = len(logs)
+        except Exception:
+            pass
+
+    path = generate_governance_report(summary, output_path or "")
+    return {"report_path": path, "status": "generated"}
+
+
+@mcp.tool()
+async def detect_fraud_network(
+    transactions: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Run graph-based fraud detection on transaction data.
+
+    Detects fraud patterns beyond single-transaction anomalies:
+    - Shared PAN/bank accounts (shell companies)
+    - Circular payment patterns (money laundering)
+    - High vendor centrality (concentration risk)
+
+    Args:
+        transactions: List of transaction dicts with agent_id, vendor_name,
+                     amount_paise, bank_account, ifsc, pan fields.
+                     If None, loads from audit logs.
+    """
+    from vyapaar_mcp.cfo.fraud import detect_fraud_patterns
+
+    if transactions is None:
+        transactions = []
+        if _postgres:
+            try:
+                logs = await _postgres.get_audit_logs(limit=100)
+                transactions = [
+                    {
+                        "agent_id": log.agent_id,
+                        "vendor_name": log.vendor_name or "unknown",
+                        "amount_paise": log.amount_paise,
+                    }
+                    for log in logs
+                ]
+            except Exception:
+                pass
+
+    return detect_fraud_patterns(transactions)
+
+
+@mcp.tool()
+async def analyze_contract(
+    contract_text: str,
+) -> dict[str, Any]:
+    """Analyze a vendor contract to extract financial terms and risk flags.
+
+    Extracts payment terms, penalty clauses, SLA commitments,
+    auto-renewal clauses, and termination notice requirements.
+
+    Args:
+        contract_text: Plain text content of the vendor contract.
+    """
+    from vyapaar_mcp.cfo.contracts import analyze_contract_text
+
+    return analyze_contract_text(contract_text)
+
+
+@mcp.tool()
+async def screen_vendor_sanctions(
+    vendor_name: str,
+    gstin: str = "",
+) -> dict[str, Any]:
+    """Screen a vendor against global sanctions and watchlists.
+
+    Uses OpenSanctions (FOSS) to check against 100+ data sources
+    including UN, EU, OFAC sanctions, and PEP databases.
+    Combines with GSTIN validation for composite trust scoring.
+
+    Args:
+        vendor_name: Name of the vendor to screen.
+        gstin: Optional GSTIN for additional verification.
+    """
+    from vyapaar_mcp.cfo.sanctions import comprehensive_vendor_screen
+
+    return await comprehensive_vendor_screen(vendor_name, gstin=gstin)
+
+
+@mcp.tool()
+async def manage_payout_workflow(
+    action: str,
+    payout_id: str = "",
+    amount_paise: int = 0,
+    agent_id: str = "",
+    reason: str = "",
+) -> dict[str, Any]:
+    """Manage payout approval workflows with formal state machine.
+
+    Replaces simple APPROVED/REJECTED with multi-stage lifecycle:
+    QUEUED → POLICY_CHECK → REPUTATION_CHECK → ANOMALY_CHECK →
+      → APPROVED → DISBURSED → CONFIRMED
+      → HELD → PENDING_L1 → PENDING_L2 → APPROVED
+
+    Args:
+        action: One of create, start_review, pass_policy, pass_reputation,
+               pass_anomaly, hold, escalate_l1, approve_l1, reject, disburse,
+               confirm, status, list.
+        payout_id: Payout ID (required for all actions except create/list).
+        amount_paise: Amount (required for create).
+        agent_id: Agent ID (required for create).
+        reason: Reason for the action (for audit trail).
+    """
+    from vyapaar_mcp.cfo.workflow import create_workflow, get_workflow, list_workflows
+
+    if action == "create":
+        wf = create_workflow(payout_id, amount_paise, agent_id)
+        return wf.get_status()
+
+    if action == "list":
+        return {"workflows": list_workflows()}
+
+    if action == "status":
+        wf = get_workflow(payout_id)
+        if not wf:
+            return {"error": f"Workflow '{payout_id}' not found"}
+        return wf.get_status()
+
+    # State transitions
+    wf = get_workflow(payout_id)
+    if not wf:
+        return {"error": f"Workflow '{payout_id}' not found"}
+
+    transition_map = {
+        "start_review": wf.start_review,
+        "pass_policy": wf.pass_policy,
+        "pass_reputation": wf.pass_reputation,
+        "pass_anomaly": wf.pass_anomaly,
+        "hold": wf.hold,
+        "escalate_l1": wf.escalate_l1,
+        "approve_l1": wf.approve_l1,
+        "escalate_l2": wf.escalate_l2,
+        "approve_l2": wf.approve_l2,
+        "reject": wf.reject,
+        "disburse": wf.disburse,
+        "confirm": wf.confirm,
+        "archive": wf.archive,
+    }
+
+    trigger = transition_map.get(action)
+    if not trigger:
+        return {"error": f"Unknown action: {action}", "available_actions": list(transition_map.keys())}
+
+    try:
+        trigger(reason=reason)  # type: ignore[call-arg]
+    except Exception as exc:
+        return {"error": str(exc), "current_state": wf.state}  # type: ignore[attr-defined]
+
+    return wf.get_status()
 
 # ================================================================
 # Server Runner

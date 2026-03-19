@@ -1,0 +1,34 @@
+stateDiagram-v2
+    [*] --> queued: Agent requests payout
+
+    queued --> policy_check: start_review
+    
+    policy_check --> reputation_check: pass_policy
+    policy_check --> held: hold (policy violation)
+    policy_check --> rejected: reject
+
+    reputation_check --> anomaly_check: pass_reputation
+    reputation_check --> held: hold (reputation risk)
+    reputation_check --> rejected: reject
+
+    anomaly_check --> approved: pass_anomaly (auto-approve)
+    anomaly_check --> held: hold (anomaly detected)
+    anomaly_check --> rejected: reject
+
+    held --> pending_l1_approval: escalate_l1
+    
+    pending_l1_approval --> approved: approve_l1
+    pending_l1_approval --> pending_l2_approval: escalate_l2
+    pending_l1_approval --> rejected: reject
+
+    pending_l2_approval --> approved: approve_l2
+    pending_l2_approval --> rejected: reject
+
+    approved --> disbursed: disburse (Razorpay)
+    
+    disbursed --> confirmed: confirm (webhook)
+    disbursed --> failed: fail_disbursement
+    
+    confirmed --> archived: archive
+    rejected --> archived: archive
+    failed --> archived: archive

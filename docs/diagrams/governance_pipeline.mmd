@@ -1,0 +1,45 @@
+flowchart LR
+    subgraph Input["📥 Input"]
+        INV["Invoice PDF"]
+        TXN["Transaction"]
+        VENDOR["Vendor Name"]
+    end
+
+    subgraph Pipeline["🛡️ Governance Pipeline"]
+        direction TB
+        P1["1️⃣ Policy Check<br/>Budget limits"]
+        P2["2️⃣ IFSC/Bank<br/>Validation"]
+        P3["3️⃣ GSTIN<br/>Verification"]
+        P4["4️⃣ Safe Browsing<br/>+ GLEIF"]
+        P5["5️⃣ Sanctions<br/>Screening"]
+        P6["6️⃣ ML Anomaly<br/>+ Graph Fraud"]
+        
+        P1 --> P2 --> P3 --> P4 --> P5 --> P6
+    end
+
+    subgraph CFO["💼 CFO Intelligence"]
+        direction TB
+        CAT["🏷️ Categorize"]
+        GST["🧾 GST/TDS Calc"]
+        FX2["💱 FX Convert"]
+        FORE["📊 Forecast Impact"]
+    end
+
+    subgraph Output["📤 Output"]
+        APR["✅ APPROVED"]
+        HLD["⏸️ HELD"]
+        REJ["❌ REJECTED"]
+        LED2["📒 Ledger Entry"]
+        RPT2["📑 PDF Report"]
+    end
+
+    INV --> Pipeline
+    TXN --> Pipeline
+    VENDOR --> Pipeline
+    
+    Pipeline --> CFO
+    CFO --> APR
+    CFO --> HLD
+    CFO --> REJ
+    APR --> LED2
+    APR --> RPT2

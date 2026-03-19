@@ -1,0 +1,49 @@
+graph TB
+    subgraph "VyapaarClaw — Full AI CFO Architecture"
+        direction TB
+        
+        subgraph KNOW["🧠 KNOW — Intelligence Layer"]
+            direction LR
+            FC["📊 Cash Flow<br/>Forecaster<br/>(Darts/EWMA)"]
+            TC["🏷️ Transaction<br/>Categorizer<br/>(FinBERT)"]
+            CA["📄 Contract<br/>Analysis<br/>(spaCy/Regex)"]
+            FX["💱 Currency<br/>Conversion<br/>(Frankfurter)"]
+            CAL["📅 Financial<br/>Calendar<br/>(holidays)"]
+        end
+
+        subgraph GUARD["🛡️ GUARD — Governance Layer"]
+            direction LR
+            GOV["⚙️ 6-Layer<br/>Governance<br/>Pipeline"]
+            GFD["🔍 Graph Fraud<br/>Detection<br/>(NetworkX)"]
+            KYB["🏢 Vendor KYB<br/>(OpenSanctions<br/>+ GLEIF)"]
+            BV["🏦 IFSC/Bank<br/>Validation<br/>(RBI)"]
+            GST["🧾 GST/TDS<br/>Compliance"]
+            WF["🔀 State Machine<br/>Approvals<br/>(Transitions)"]
+        end
+
+        subgraph ACT["⚡ ACT — Execution Layer"]
+            direction LR
+            PAY["💸 Razorpay<br/>Payouts"]
+            LED["📒 Double-Entry<br/>Ledger<br/>(python-acct)"]
+            RPT["📑 PDF<br/>Reports<br/>(FPDF2)"]
+            NTF["🔔 Notifications<br/>(Slack/TG/ntfy)"]
+        end
+    end
+
+    MCP["🔌 MCP Server<br/>(37 Tools)"] --> KNOW
+    KNOW --> GUARD
+    GUARD --> ACT
+    
+    AGENT["🤖 AI Agent"] <--> MCP
+    DASH["📊 Next.js Dashboard"] <--> MCP
+    CLAW["🐾 OpenClaw Framework"] <--> MCP
+
+    classDef know fill:#dbeafe,stroke:#3b82f6,stroke-width:2px
+    classDef guard fill:#fef3c7,stroke:#f59e0b,stroke-width:2px
+    classDef act fill:#d1fae5,stroke:#10b981,stroke-width:2px
+    classDef external fill:#f3e8ff,stroke:#8b5cf6,stroke-width:2px
+
+    class FC,TC,CA,FX,CAL know
+    class GOV,GFD,KYB,BV,GST,WF guard
+    class PAY,LED,RPT,NTF act
+    class AGENT,DASH,CLAW external

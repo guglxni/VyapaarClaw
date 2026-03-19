@@ -1,0 +1,44 @@
+graph TD
+    subgraph FOSS["🌐 FOSS Compliance Matrix"]
+        direction TB
+        
+        subgraph Layer1["Document Processing"]
+            HA["HyperAPI<br/>(primary)"] -.->|fallback| DOC["Docling<br/>(MIT)"]
+            DOC -.->|fallback| TESS["Tesseract<br/>(Apache 2.0)"]
+            HA -.->|tables| POCR["PaddleOCR<br/>(Apache 2.0)"]
+        end
+
+        subgraph Layer2["Financial Intelligence"]
+            DARTS["Darts<br/>(Apache 2.0)"]
+            PROPHET["Prophet<br/>(MIT)"]
+            SKLEARN["scikit-learn<br/>(BSD-3)"]
+            NX["NetworkX<br/>(BSD-3)"]
+        end
+
+        subgraph Layer3["India Compliance"]
+            GSTV["gst_validator<br/>(MIT)"]
+            IFSC["razorpay/ifsc<br/>(MIT)"]
+            HOL["holidays<br/>(MIT)"]
+            FRANK["Frankfurter<br/>(MIT)"]
+        end
+
+        subgraph Layer4["Vendor Trust"]
+            GLEIF2["GLEIF<br/>(Open Data)"]
+            SB["Safe Browsing<br/>(Google)"]
+            OS["OpenSanctions<br/>(MIT)"]
+        end
+
+        subgraph Layer5["Infrastructure"]
+            REDIS["Redis<br/>(BSD-3)"]
+            PG["PostgreSQL<br/>(PostgreSQL)"]
+            FPDF["FPDF2<br/>(LGPL 3)"]
+            TRANS["Transitions<br/>(MIT)"]
+        end
+    end
+
+    style FOSS fill:#f8fafc,stroke:#64748b,stroke-width:2px
+    style Layer1 fill:#dbeafe,stroke:#3b82f6
+    style Layer2 fill:#fef3c7,stroke:#f59e0b
+    style Layer3 fill:#d1fae5,stroke:#10b981
+    style Layer4 fill:#fee2e2,stroke:#ef4444
+    style Layer5 fill:#f3e8ff,stroke:#8b5cf6
