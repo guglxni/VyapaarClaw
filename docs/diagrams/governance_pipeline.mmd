@@ -1,59 +1,21 @@
-flowchart LR
-    %% Professional Pipeline Styling
-    classDef default fill:#FFFFFF,stroke:#333333,stroke-width:2px,color:#333333,font-family:sans-serif;
-    classDef input fill:#F3F4F6,stroke:#6B7280,color:#1F2937,rx:8,ry:8,stroke-width:2px;
-    classDef pipeline fill:#E0E7FF,stroke:#3B82F6,color:#1E40AF,rx:8,ry:8,stroke-width:2px;
-    classDef intel fill:#FEF3C7,stroke:#F59E0B,color:#92400E,rx:8,ry:8,stroke-width:2px;
-    classDef approve fill:#DCFCE7,stroke:#10B981,color:#065F46,rx:8,ry:8,stroke-width:2px;
-    classDef hold fill:#FEF08A,stroke:#D97706,color:#78350F,rx:8,ry:8,stroke-width:2px;
-    classDef reject fill:#FEE2E2,stroke:#EF4444,color:#991B1B,rx:8,ry:8,stroke-width:2px;
-    classDef output fill:#F8FAFC,stroke:#9CA3AF,color:#374151,rx:8,ry:8,stroke-width:2px;
-    classDef boundary fill:none,stroke:#9CA3AF,stroke-width:2px,stroke-dasharray: 4 4;
+graph LR
+    %% Scientific Sequential Pipeline
+    classDef data fill:#fff,stroke:#666,stroke-width:1px,stroke-dasharray: 2 2,font-family:monospace;
+    classDef phase fill:#f9f9f9,stroke:#333,stroke-width:1px,font-family:monospace;
+    classDef terminal fill:#000,stroke:#000,color:#fff,font-family:monospace;
 
-    subgraph InputBoundary[Ingestion Sources]
-        INV["Invoice Document"]:::input
-        TXN["Transaction Record"]:::input
-        VENDOR["Vendor Identity"]:::input
-    end
-
-    subgraph PipelineBoundary[Sequential Governance Pipeline]
-        direction TB
-        P1["Phase 1<br/>Policy & Budget Checks"]:::pipeline
-        P2["Phase 2<br/>Bank & IFSC Validation"]:::pipeline
-        P3["Phase 3<br/>GSTIN Verification"]:::pipeline
-        P4["Phase 4<br/>Reputation Check<br/>(Safe Browsing/GLEIF)"]:::pipeline
-        P5["Phase 5<br/>Sanctions Screening"]:::pipeline
-        P6["Phase 6<br/>Fraud Detection<br/>(ML/Graph Analysis)"]:::pipeline
-        
-        P1 --> P2 --> P3 --> P4 --> P5 --> P6
-    end
-
-    subgraph CFOBoundary[Financial Intelligence Processing]
-        direction TB
-        CAT["Classification Engine"]:::intel
-        GST["Tax Calculation"]:::intel
-        FX2["Currency Exchange"]:::intel
-        FORE["Forecasting Impact"]:::intel
-    end
-
-    subgraph ResolutionBoundary[Decision & Execution]
-        APR["AUTHORIZED"]:::approve
-        HLD["QUARANTINED"]:::hold
-        REJ["DECLINED"]:::reject
-        LED2["Ledger Commitment"]:::output
-        RPT2["Audit Report Generation"]:::output
-    end
-
-    INV --> PipelineBoundary
-    TXN --> PipelineBoundary
-    VENDOR --> PipelineBoundary
+    Input(["Txn Data"]):::data --> P1
     
-    PipelineBoundary --> CFOBoundary
-    CFOBoundary --> APR
-    CFOBoundary --> HLD
-    CFOBoundary --> REJ
+    subgraph Pipeline ["Validation Pipeline"]
+        direction LR
+        P1["1. Policy Check"]:::phase --> P2["2. Bank/IFSC"]:::phase
+        P2 --> P3["3. GSTIN"]:::phase
+        P3 --> P4["4. Reputation"]:::phase
+        P4 --> P5["5. Sanctions"]:::phase
+        P5 --> P6["6. Fraud ML"]:::phase
+    end
     
-    APR --> LED2
-    APR --> RPT2
-
-    class InputBoundary,PipelineBoundary,CFOBoundary,ResolutionBoundary boundary
+    P6 --> Eval{"Decision<br/>Matrix"}:::phase
+    Eval --> A(["AUTHORIZED"]):::terminal
+    Eval --> H(["HELD"]):::terminal
+    Eval --> R(["REJECTED"]):::terminal

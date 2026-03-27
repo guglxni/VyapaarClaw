@@ -1,51 +1,25 @@
 graph TD
-    %% Professional C4-Inspired Styling
-    classDef default fill:#FFFFFF,stroke:#333333,stroke-width:2px,color:#333333,font-family:sans-serif;
-    classDef system fill:#1E40AF,stroke:#1E3A8A,color:#FFFFFF,rx:8,ry:8,stroke-width:2px;
-    classDef component fill:#EFF6FF,stroke:#3B82F6,color:#1E40AF,rx:8,ry:8,stroke-width:2px;
-    classDef database fill:#F3F4F6,stroke:#4B5563,color:#1F2937,rx:8,ry:8,stroke-width:2px;
-    classDef external fill:#FCE7F3,stroke:#EF4444,color:#991B1B,rx:8,ry:8,stroke-width:2px;
-    classDef boundary fill:none,stroke:#9CA3AF,stroke-width:2px,stroke-dasharray: 5 5;
+    %% Scientific Block Diagram
+    classDef ext fill:#fff,stroke:#333,stroke-width:1px,stroke-dasharray: 3 3,font-family:monospace;
+    classDef core fill:#f0f0f0,stroke:#000,stroke-width:1px,font-family:monospace;
+    classDef node fill:#fff,stroke:#333,stroke-width:1px,font-family:monospace;
 
-    subgraph VyapaarClaw[VyapaarClaw System Boundary]
+    Client(["Agent Client"]):::ext -->|JSON-RPC| MCP
+    
+    subgraph VyapaarClaw ["System Architecture (VyapaarClaw)"]
         direction TB
+        MCP["MCP Server Engine"]:::core
         
-        %% Interfaces
-        TUI["Terminal UI<br/>[Textual Component]"]:::component
-        Web["Web Dashboard<br/>[Next.js Component]"]:::component
-        
-        %% Core
-        Server["MCP Server Engine<br/>[FastAPI Component]"]:::system
-        
-        %% Agent Layer
-        subgraph AgentsBoundary[Intelligent Agents]
-            CFO["AI CFO Agent<br/>[LLM Component]"]:::component
-            Governance["Policy Validator<br/>[Logic Component]"]:::component
+        subgraph Pipeline ["Three-Tier Logic Processing"]
+            direction TB
+            KNOW["L1: Intelligence<br/>(Forecasting, Classification, FX)"]:::node
+            GUARD["L2: Governance<br/>(Policy, Fraud, Validations)"]:::node
+            ACT["L3: Execution<br/>(Payouts, Ledger, Reports)"]:::node
+            
+            KNOW --> GUARD --> ACT
         end
         
-        %% Persistence
-        subgraph DataBoundary[Persistence Layer]
-            DB[("PostgreSQL<br/>[Relational DB]")]:::database
-            Redis[("Redis Cache<br/>[In-Memory Store]")]:::database
-        end
-    end
-
-    subgraph External[External Systems Boundary]
-        Razorpay["Razorpay API<br/>[Payment Gateway]"]:::external
-        Slack["Slack Webhooks<br/>[Notification System]"]:::external
+        MCP --> Pipeline
     end
     
-    %% Relationships
-    TUI -->|Interacts via API| Server
-    Web -->|Interacts via API| Server
-    
-    Server -->|Orchestrates| AgentsBoundary
-    CFO <-->|Coordinates| Governance
-    
-    Server -->|Reads/Writes| DataBoundary
-    
-    Server <-->|API Calls| Razorpay
-    Server -->|Pushes Notifications| Slack
-
-    %% Apply boundary styling
-    class VyapaarClaw,AgentsBoundary,DataBoundary,External boundary
+    Pipeline -->|Webhooks/APIs| Integrations(["External Services<br/>(Razorpay, Slack)"]):::ext
