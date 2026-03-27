@@ -18,7 +18,65 @@ npx vyapaarclaw start        # Launch MCP server + Web UI + OpenClaw gateway
 
 Three-layer AI CFO architecture: **KNOW** (intelligence) → **GUARD** (governance) → **ACT** (execution):
 
-![VyapaarClaw Architecture](docs/diagrams/architecture_full.png)
+```mermaid
+graph TB
+    %% Professional C4 Architecture Styling
+    classDef default fill:#FFFFFF,stroke:#333333,stroke-width:2px,color:#333333,font-family:sans-serif;
+    classDef interface fill:#E0E7FF,stroke:#3B82F6,color:#1E40AF,rx:8,ry:8,stroke-width:2px;
+    classDef engine fill:#1E40AF,stroke:#1E3A8A,color:#FFFFFF,rx:8,ry:8,stroke-width:2px;
+    classDef layer fill:#F9FAFB,stroke:#9CA3AF,color:#1F2937,rx:8,ry:8,stroke-width:2px;
+    classDef intelligence fill:#EFF6FF,stroke:#3B82F6,color:#1E40AF,rx:8,ry:8,stroke-width:2px;
+    classDef governance fill:#FEF3C7,stroke:#F59E0B,color:#92400E,rx:8,ry:8,stroke-width:2px;
+    classDef execution fill:#DCFCE7,stroke:#10B981,color:#065F46,rx:8,ry:8,stroke-width:2px;
+    classDef boundary fill:none,stroke:#6B7280,stroke-width:2px,stroke-dasharray: 4 4;
+
+    subgraph SystemBoundary[VyapaarClaw Extended System Architecture]
+        direction TB
+
+        MCP["Core MCP Server<br/>[FastAPI / 37 Tools]"]:::engine
+
+        subgraph LayersBoundary[Functional Tiers]
+            direction TB
+            subgraph KNOW[Cognitive & Intelligence Tier]
+                direction LR
+                FC["Cash Flow Forecaster<br/>[Darts/EWMA]"]:::intelligence
+                TC["Transaction Categorizer<br/>[FinBERT]"]:::intelligence
+                CA["Contract Analysis<br/>[spaCy/Regex]"]:::intelligence
+                FX["Currency Conversion<br/>[Frankfurter]"]:::intelligence
+                CAL["Financial Calendar<br/>[Holidays]"]:::intelligence
+            end
+
+            subgraph GUARD[Risk & Governance Tier]
+                direction LR
+                GOV["6-Layer Governance<br/>[Pipeline]"]:::governance
+                GFD["Graph Fraud Detection<br/>[NetworkX]"]:::governance
+                KYB["Vendor KYB Engine<br/>[OpenSanctions/GLEIF]"]:::governance
+                BV["Bank Validation<br/>[RBI/IFSC]"]:::governance
+                GST["Compliance Engine<br/>[GST/TDS]"]:::governance
+                WF["Approval Workflows<br/>[State Machine]"]:::governance
+            end
+
+            subgraph ACT[Execution & Operations Tier]
+                direction LR
+                PAY["Payment Gateway Integration<br/>[Razorpay]"]:::execution
+                LED["Double-Entry Ledger<br/>[python-acct]"]:::execution
+                RPT["Document Generation<br/>[FPDF2]"]:::execution
+                NTF["Notification Broker<br/>[Slack/TG/ntfy]"]:::execution
+            end
+        end
+    end
+
+    %% Interactions
+    AGENT["AI Client Agent"]:::interface <-->|Tool Execution| MCP
+    DASH["Admin Dashboard<br/>[Next.js]"]:::interface <-->|REST/GraphQL| MCP
+    CLAW["OpenClaw Framework"]:::interface <-->|Integration| MCP
+
+    MCP -->|Delegates to| KNOW
+    KNOW -->|Validates via| GUARD
+    GUARD -->|Triggers| ACT
+
+    class SystemBoundary,LayersBoundary boundary
+```
 
 ## Features
 
