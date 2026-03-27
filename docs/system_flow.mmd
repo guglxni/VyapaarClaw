@@ -1,33 +1,27 @@
-graph TD
-    %% Scientific Flowchart
-    classDef io fill:#000,stroke:#000,color:#fff,font-family:monospace;
-    classDef step fill:#fff,stroke:#000,stroke-width:1px,font-family:monospace;
-    classDef cond fill:#fff,stroke:#000,stroke-width:1px,font-family:monospace;
-    classDef terminal fill:#f0f0f0,stroke:#333,stroke-width:1px,stroke-dasharray: 4 4,font-family:monospace;
-
-    Start(["Input: Agent Payout Request"]):::io --> CheckPol{"1. Policy<br/>Valid?"}:::cond
-    CheckPol -- Yes --> CheckDom{"2. Domain<br/>Allowed?"}:::cond
-    CheckPol -- No --> R1["Reject (NO_POLICY)"]:::terminal
+graph LR
+    Start(["Input: Agent Payout Request"]) --> CheckPol{"1. Policy<br/>Valid?"}
+    CheckPol -- Yes --> CheckDom{"2. Domain<br/>Allowed?"}
+    CheckPol -- No --> R1["Reject (NO_POLICY)"]
     
-    CheckDom -- Yes --> CheckTxn{"3. Under<br/>Txn Limit?"}:::cond
-    CheckDom -- No --> R2["Reject (DOMAIN_BLOCKED)"]:::terminal
+    CheckDom -- Yes --> CheckTxn{"3. Under<br/>Txn Limit?"}
+    CheckDom -- No --> R2["Reject (DOMAIN_BLOCKED)"]
     
-    CheckTxn -- Yes --> CheckML{"4. Anomaly<br/>Score OK?"}:::cond
-    CheckTxn -- No --> R3["Reject (LIMIT_EXCEEDED)"]:::terminal
+    CheckTxn -- Yes --> CheckML{"4. Anomaly<br/>Score OK?"}
+    CheckTxn -- No --> R3["Reject (LIMIT_EXCEEDED)"]
     
-    CheckML -- Pass --> CheckRep{"5. Reputation<br/>Safe?"}:::cond
-    CheckML -- Fail --> H1["Hold (ML_FLAGGED)"]:::step
+    CheckML -- Pass --> CheckRep{"5. Reputation<br/>Safe?"}
+    CheckML -- Fail --> H1["Hold (ML_FLAGGED)"]
     
-    CheckRep -- Yes --> CheckBud{"6. Budget<br/>Available?"}:::cond
-    CheckRep -- No --> R4["Reject (RISK_HIGH)"]:::terminal
+    CheckRep -- Yes --> CheckBud{"6. Budget<br/>Available?"}
+    CheckRep -- No --> R4["Reject (RISK_HIGH)"]
     
-    CheckBud -- Yes --> CheckAuto{"7. Auto<br/>Approve?"}:::cond
-    CheckBud -- No --> R5["Reject (NO_FUNDS)"]:::terminal
+    CheckBud -- Yes --> CheckAuto{"7. Auto<br/>Approve?"}
+    CheckBud -- No --> R5["Reject (NO_FUNDS)"]
     
-    CheckAuto -- Yes --> App["Approve Payout"]:::terminal
-    CheckAuto -- No --> H2["Hold (REQUIRE_L1)"]:::step
+    CheckAuto -- Yes --> App["Approve Payout"]
+    CheckAuto -- No --> H2["Hold (REQUIRE_L1)"]
     
-    H1 --> M["Manual Review via Slack"]:::step
+    H1 --> M["Manual Review via Slack"]
     H2 --> M
     M -- Approve --> App
-    M -- Deny --> R6["Reject (OVERRIDE)"]:::terminal
+    M -- Deny --> R6["Reject (OVERRIDE)"]

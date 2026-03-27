@@ -8,33 +8,7 @@ The system exposes **37 MCP tools** across three intelligence layers: **KNOW** (
 
 ## Full Architecture Diagram
 
-```mermaid
-graph TD
-    %% Scientific Block Diagram
-    classDef ext fill:#fff,stroke:#333,stroke-width:1px,stroke-dasharray: 3 3,font-family:monospace;
-    classDef core fill:#f0f0f0,stroke:#000,stroke-width:1px,font-family:monospace;
-    classDef node fill:#fff,stroke:#333,stroke-width:1px,font-family:monospace;
-
-    Client(["Agent Client"]):::ext -->|JSON-RPC| MCP
-    
-    subgraph VyapaarClaw ["System Architecture (VyapaarClaw)"]
-        direction TB
-        MCP["MCP Server Engine"]:::core
-        
-        subgraph Pipeline ["Three-Tier Logic Processing"]
-            direction TB
-            KNOW["L1: Intelligence<br/>(Forecasting, Classification, FX)"]:::node
-            GUARD["L2: Governance<br/>(Policy, Fraud, Validations)"]:::node
-            ACT["L3: Execution<br/>(Payouts, Ledger, Reports)"]:::node
-            
-            KNOW --> GUARD --> ACT
-        end
-        
-        MCP --> Pipeline
-    end
-    
-    Pipeline -->|Webhooks/APIs| Integrations(["External Services<br/>(Razorpay, Slack)"]):::ext
-```
+![VyapaarClaw Full Architecture](./diagrams/architecture_full.png)
 
 ## Three-Layer Architecture
 
@@ -78,102 +52,19 @@ The execution layer performs actions:
 
 Every payout passes through a formal state machine with multi-level approvals:
 
-```mermaid
-stateDiagram-v2
-    %% Scientific State Machine
-    classDef state fill:#fff,stroke:#333,stroke-width:1px,font-family:monospace;
-    
-    [*] --> Queued
-    Queued --> EvaluatingConstraints
-    EvaluatingConstraints --> Held : Violation
-    EvaluatingConstraints --> ValidatingEntity : Met
-    
-    ValidatingEntity --> Held : Risk Detected
-    ValidatingEntity --> ScoringAnomaly : Verified
-    
-    ScoringAnomaly --> Held : Outlier
-    ScoringAnomaly --> ReadyForExecution : Normal
-    
-    Held --> Tier1Review : Escalate
-    Tier1Review --> Tier2Review : L1 Cond
-    Tier1Review --> ReadyForExecution : Approved
-    Tier1Review --> Rejected : Denied
-    Tier2Review --> ReadyForExecution : Approved
-    Tier2Review --> Rejected : Denied
-    
-    ReadyForExecution --> Transmitting
-    Transmitting --> Confirmed : Webhook
-    Transmitting --> Failed : API Error
-    
-    Confirmed --> [*]
-    Failed --> [*]
-    Rejected --> [*]
-```
+![Payout Workflow State Machine](./diagrams/payout_workflow.png)
 
 ## Governance Pipeline Flow
 
 End-to-end flow from invoice/transaction input through governance to decision:
 
-```mermaid
-graph LR
-    %% Scientific Sequential Pipeline
-    classDef data fill:#fff,stroke:#666,stroke-width:1px,stroke-dasharray: 2 2,font-family:monospace;
-    classDef phase fill:#f9f9f9,stroke:#333,stroke-width:1px,font-family:monospace;
-    classDef terminal fill:#000,stroke:#000,color:#fff,font-family:monospace;
-
-    Input(["Txn Data"]):::data --> P1
-    
-    subgraph Pipeline ["Validation Pipeline"]
-        direction LR
-        P1["1. Policy Check"]:::phase --> P2["2. Bank/IFSC"]:::phase
-        P2 --> P3["3. GSTIN"]:::phase
-        P3 --> P4["4. Reputation"]:::phase
-        P4 --> P5["5. Sanctions"]:::phase
-        P5 --> P6["6. Fraud ML"]:::phase
-    end
-    
-    P6 --> Eval{"Decision<br/>Matrix"}:::phase
-    Eval --> A(["AUTHORIZED"]):::terminal
-    Eval --> H(["HELD"]):::terminal
-    Eval --> R(["REJECTED"]):::terminal
-```
+![Governance Pipeline](./diagrams/governance_pipeline.png)
 
 ## FOSS Compliance Matrix
 
 Every core capability has a FOSS alternative — no proprietary lock-in:
 
-```mermaid
-graph TD
-    %% Scientific Component Stack
-    classDef p_node fill:#fff,stroke:#000,stroke-width:1px,font-family:monospace;
-    classDef s_node fill:#fcfcfc,stroke:#666,stroke-width:1px,stroke-dasharray: 2 2,font-family:monospace;
-    classDef stack fill:none,stroke:#999,stroke-width:1px;
-
-    subgraph FOSS ["FOSS Stack Components"]
-        direction TB
-        
-        subgraph L1 ["Document OCR"]
-            HA["HyperAPI"]:::p_node -.-> DOC["Docling (MIT)"]:::s_node
-        end
-        
-        subgraph L2 ["Intelligence & Math"]
-            DART["Darts (Apache)"]:::p_node
-            NX["NetworkX (BSD)"]:::p_node
-        end
-        
-        subgraph L3 ["Regional Regs"]
-            GST["gst_validator (MIT)"]:::p_node
-            FX["Frankfurter (MIT)"]:::p_node
-        end
-        
-        subgraph L4 ["Entity Verification"]
-            GL["GLEIF DB (Open)"]:::p_node
-            OS["OpenSanctions (MIT)"]:::p_node
-        end
-    end
-
-    class L1,L2,L3,L4 stack
-```
+![FOSS Compliance Matrix](./diagrams/foss_matrix.png)
 
 ## Core Components
 

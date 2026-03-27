@@ -4,41 +4,7 @@ VyapaarClaw implements a 6-layer protocol-level security enforcement model for m
 
 ## Governance Execution Flow
 
-```mermaid
-graph TD
-    %% Scientific Flowchart
-    classDef io fill:#000,stroke:#000,color:#fff,font-family:monospace;
-    classDef step fill:#fff,stroke:#000,stroke-width:1px,font-family:monospace;
-    classDef cond fill:#fff,stroke:#000,stroke-width:1px,font-family:monospace;
-    classDef terminal fill:#f0f0f0,stroke:#333,stroke-width:1px,stroke-dasharray: 4 4,font-family:monospace;
-
-    Start(["Input: Agent Payout Request"]):::io --> CheckPol{"1. Policy<br/>Valid?"}:::cond
-    CheckPol -- Yes --> CheckDom{"2. Domain<br/>Allowed?"}:::cond
-    CheckPol -- No --> R1["Reject (NO_POLICY)"]:::terminal
-    
-    CheckDom -- Yes --> CheckTxn{"3. Under<br/>Txn Limit?"}:::cond
-    CheckDom -- No --> R2["Reject (DOMAIN_BLOCKED)"]:::terminal
-    
-    CheckTxn -- Yes --> CheckML{"4. Anomaly<br/>Score OK?"}:::cond
-    CheckTxn -- No --> R3["Reject (LIMIT_EXCEEDED)"]:::terminal
-    
-    CheckML -- Pass --> CheckRep{"5. Reputation<br/>Safe?"}:::cond
-    CheckML -- Fail --> H1["Hold (ML_FLAGGED)"]:::step
-    
-    CheckRep -- Yes --> CheckBud{"6. Budget<br/>Available?"}:::cond
-    CheckRep -- No --> R4["Reject (RISK_HIGH)"]:::terminal
-    
-    CheckBud -- Yes --> CheckAuto{"7. Auto<br/>Approve?"}:::cond
-    CheckBud -- No --> R5["Reject (NO_FUNDS)"]:::terminal
-    
-    CheckAuto -- Yes --> App["Approve Payout"]:::terminal
-    CheckAuto -- No --> H2["Hold (REQUIRE_L1)"]:::step
-    
-    H1 --> M["Manual Review via Slack"]:::step
-    H2 --> M
-    M -- Approve --> App
-    M -- Deny --> R6["Reject (OVERRIDE)"]:::terminal
-```
+![VyapaarClaw Payout Execution Flow](./system_flow.png)
 
 ### The Security Pipeline (Fail-Closed)
 

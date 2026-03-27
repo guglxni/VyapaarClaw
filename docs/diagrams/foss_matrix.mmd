@@ -1,30 +1,23 @@
-graph TD
-    %% Scientific Component Stack
-    classDef p_node fill:#fff,stroke:#000,stroke-width:1px,font-family:monospace;
-    classDef s_node fill:#fcfcfc,stroke:#666,stroke-width:1px,stroke-dasharray: 2 2,font-family:monospace;
-    classDef stack fill:none,stroke:#999,stroke-width:1px;
-
+graph LR
     subgraph FOSS ["FOSS Stack Components"]
-        direction TB
+        direction LR
         
         subgraph L1 ["Document OCR"]
-            HA["HyperAPI"]:::p_node -.-> DOC["Docling (MIT)"]:::s_node
+            HA["HyperAPI"] -.-> DOC["Docling (MIT)"]
         end
         
         subgraph L2 ["Intelligence & Math"]
-            DART["Darts (Apache)"]:::p_node
-            NX["NetworkX (BSD)"]:::p_node
+            DART["Darts (Apache)"]
+            NX["NetworkX (BSD)"]
         end
         
         subgraph L3 ["Regional Regs"]
-            GST["gst_validator (MIT)"]:::p_node
-            FX["Frankfurter (MIT)"]:::p_node
+            GST["gst_validator (MIT)"]
+            FX["Frankfurter (MIT)"]
         end
         
         subgraph L4 ["Entity Verification"]
-            GL["GLEIF DB (Open)"]:::p_node
-            OS["OpenSanctions (MIT)"]:::p_node
+            GL["GLEIF DB (Open)"]
+            OS["OpenSanctions (MIT)"]
         end
     end
-
-    class L1,L2,L3,L4 stack

@@ -18,33 +18,7 @@ npx vyapaarclaw start        # Launch MCP server + Web UI + OpenClaw gateway
 
 Three-layer AI CFO architecture: **KNOW** (intelligence) → **GUARD** (governance) → **ACT** (execution):
 
-```mermaid
-graph TD
-    %% Scientific Block Diagram
-    classDef ext fill:#fff,stroke:#333,stroke-width:1px,stroke-dasharray: 3 3,font-family:monospace;
-    classDef core fill:#f0f0f0,stroke:#000,stroke-width:1px,font-family:monospace;
-    classDef node fill:#fff,stroke:#333,stroke-width:1px,font-family:monospace;
-
-    Client(["Agent Client"]):::ext -->|JSON-RPC| MCP
-    
-    subgraph VyapaarClaw ["System Architecture (VyapaarClaw)"]
-        direction TB
-        MCP["MCP Server Engine"]:::core
-        
-        subgraph Pipeline ["Three-Tier Logic Processing"]
-            direction TB
-            KNOW["L1: Intelligence<br/>(Forecasting, Classification, FX)"]:::node
-            GUARD["L2: Governance<br/>(Policy, Fraud, Validations)"]:::node
-            ACT["L3: Execution<br/>(Payouts, Ledger, Reports)"]:::node
-            
-            KNOW --> GUARD --> ACT
-        end
-        
-        MCP --> Pipeline
-    end
-    
-    Pipeline -->|Webhooks/APIs| Integrations(["External Services<br/>(Razorpay, Slack)"]):::ext
-```
+![VyapaarClaw Architecture](docs/diagrams/architecture_full.png)
 
 ## Features
 

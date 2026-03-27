@@ -1,21 +1,16 @@
 graph LR
-    %% Scientific Sequential Pipeline
-    classDef data fill:#fff,stroke:#666,stroke-width:1px,stroke-dasharray: 2 2,font-family:monospace;
-    classDef phase fill:#f9f9f9,stroke:#333,stroke-width:1px,font-family:monospace;
-    classDef terminal fill:#000,stroke:#000,color:#fff,font-family:monospace;
-
-    Input(["Txn Data"]):::data --> P1
+    Input(["Txn Data"]) --> P1
     
     subgraph Pipeline ["Validation Pipeline"]
         direction LR
-        P1["1. Policy Check"]:::phase --> P2["2. Bank/IFSC"]:::phase
-        P2 --> P3["3. GSTIN"]:::phase
-        P3 --> P4["4. Reputation"]:::phase
-        P4 --> P5["5. Sanctions"]:::phase
-        P5 --> P6["6. Fraud ML"]:::phase
+        P1["1. Policy Check"] --> P2["2. Bank/IFSC"]
+        P2 --> P3["3. GSTIN"]
+        P3 --> P4["4. Reputation"]
+        P4 --> P5["5. Sanctions"]
+        P5 --> P6["6. Fraud ML"]
     end
     
-    P6 --> Eval{"Decision<br/>Matrix"}:::phase
-    Eval --> A(["AUTHORIZED"]):::terminal
-    Eval --> H(["HELD"]):::terminal
-    Eval --> R(["REJECTED"]):::terminal
+    P6 --> Eval{"Decision<br/>Matrix"}
+    Eval --> A(["AUTHORIZED"])
+    Eval --> H(["HELD"])
+    Eval --> R(["REJECTED"])

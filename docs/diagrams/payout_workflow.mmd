@@ -1,7 +1,5 @@
 stateDiagram-v2
-    %% Scientific State Machine
-    classDef state fill:#fff,stroke:#333,stroke-width:1px,font-family:monospace;
-    
+    direction LR
     [*] --> Queued
     Queued --> EvaluatingConstraints
     EvaluatingConstraints --> Held : Violation
