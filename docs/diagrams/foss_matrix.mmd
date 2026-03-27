@@ -1,44 +1,50 @@
 graph TD
-    subgraph FOSS["🌐 FOSS Compliance Matrix"]
+    %% Professional Component Styling
+    classDef default fill:#FFFFFF,stroke:#333333,stroke-width:2px,color:#333333,font-family:sans-serif;
+    classDef primary fill:#EFF6FF,stroke:#3B82F6,color:#1E40AF,rx:8,ry:8,stroke-width:2px;
+    classDef secondary fill:#F3F4F6,stroke:#6B7280,color:#374151,rx:8,ry:8,stroke-width:2px;
+    classDef tier fill:none,stroke:#9CA3AF,stroke-width:2px,stroke-dasharray: 4 4;
+
+    subgraph MatrixBoundary[Open Source Dependency & Compliance Matrix]
         direction TB
         
-        subgraph Layer1["Document Processing"]
-            HA["HyperAPI<br/>(primary)"] -.->|fallback| DOC["Docling<br/>(MIT)"]
-            DOC -.->|fallback| TESS["Tesseract<br/>(Apache 2.0)"]
-            HA -.->|tables| POCR["PaddleOCR<br/>(Apache 2.0)"]
+        subgraph Layer1[Tier 1: Document Processing]
+            HA["HyperAPI<br/>[Primary Engine]"]:::primary
+            DOC["Docling<br/>[MIT License]"]:::secondary
+            TESS["Tesseract<br/>[Apache 2.0]"]:::secondary
+            POCR["PaddleOCR<br/>[Apache 2.0]"]:::secondary
+            
+            HA -.->|Fallback Strategy| DOC
+            DOC -.->|Fallback Strategy| TESS
+            HA -.->|Table Extraction| POCR
         end
 
-        subgraph Layer2["Financial Intelligence"]
-            DARTS["Darts<br/>(Apache 2.0)"]
-            PROPHET["Prophet<br/>(MIT)"]
-            SKLEARN["scikit-learn<br/>(BSD-3)"]
-            NX["NetworkX<br/>(BSD-3)"]
+        subgraph Layer2[Tier 2: Financial Intelligence]
+            DARTS["Darts<br/>[Apache 2.0]"]:::primary
+            PROPHET["Prophet<br/>[MIT License]"]:::secondary
+            SKLEARN["scikit-learn<br/>[BSD-3 Clause]"]:::primary
+            NX["NetworkX<br/>[BSD-3 Clause]"]:::primary
         end
 
-        subgraph Layer3["India Compliance"]
-            GSTV["gst_validator<br/>(MIT)"]
-            IFSC["razorpay/ifsc<br/>(MIT)"]
-            HOL["holidays<br/>(MIT)"]
-            FRANK["Frankfurter<br/>(MIT)"]
+        subgraph Layer3[Tier 3: Regional Compliance]
+            GSTV["gst_validator<br/>[MIT License]"]:::primary
+            IFSC["razorpay/ifsc<br/>[MIT License]"]:::primary
+            HOL["holidays<br/>[MIT License]"]:::primary
+            FRANK["Frankfurter<br/>[MIT License]"]:::primary
         end
 
-        subgraph Layer4["Vendor Trust"]
-            GLEIF2["GLEIF<br/>(Open Data)"]
-            SB["Safe Browsing<br/>(Google)"]
-            OS["OpenSanctions<br/>(MIT)"]
+        subgraph Layer4[Tier 4: Vendor Trust & Verification]
+            GLEIF2["GLEIF Database<br/>[Open Data]"]:::primary
+            SB["Google Safe Browsing<br/>[Public API]"]:::secondary
+            OS["OpenSanctions<br/>[MIT License]"]:::primary
         end
 
-        subgraph Layer5["Infrastructure"]
-            REDIS["Redis<br/>(BSD-3)"]
-            PG["PostgreSQL<br/>(PostgreSQL)"]
-            FPDF["FPDF2<br/>(LGPL 3)"]
-            TRANS["Transitions<br/>(MIT)"]
+        subgraph Layer5[Tier 5: Core Infrastructure]
+            REDIS["Redis Store<br/>[BSD-3 Clause]"]:::primary
+            PG["PostgreSQL<br/>[PostgreSQL License]"]:::primary
+            FPDF["FPDF2<br/>[LGPL 3.0]"]:::secondary
+            TRANS["Transitions<br/>[MIT License]"]:::primary
         end
     end
 
-    style FOSS fill:#f8fafc,stroke:#64748b,stroke-width:2px
-    style Layer1 fill:#dbeafe,stroke:#3b82f6
-    style Layer2 fill:#fef3c7,stroke:#f59e0b
-    style Layer3 fill:#d1fae5,stroke:#10b981
-    style Layer4 fill:#fee2e2,stroke:#ef4444
-    style Layer5 fill:#f3e8ff,stroke:#8b5cf6
+    class MatrixBoundary,Layer1,Layer2,Layer3,Layer4,Layer5 tier

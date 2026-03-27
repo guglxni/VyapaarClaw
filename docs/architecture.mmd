@@ -1,42 +1,51 @@
 graph TD
-    %% Styling
-    classDef mcp fill:#2d3748,stroke:#4a5568,color:#fff,rx:5,ry:5,stroke-width:2px;
-    classDef agent fill:#ebf8ff,stroke:#3182ce,color:#2b6cb0,rx:5,ry:5,stroke-width:2px;
-    classDef web fill:#f0fff4,stroke:#38a169,color:#276749,rx:5,ry:5,stroke-width:2px;
-    classDef external fill:#fff5f5,stroke:#e53e3e,color:#c53030,rx:5,ry:5,stroke-width:2px;
-    classDef db fill:#FAF5FF,stroke:#805AD5,color:#553C9A,shape:cylinder,stroke-width:2px;
+    %% Professional C4-Inspired Styling
+    classDef default fill:#FFFFFF,stroke:#333333,stroke-width:2px,color:#333333,font-family:sans-serif;
+    classDef system fill:#1E40AF,stroke:#1E3A8A,color:#FFFFFF,rx:8,ry:8,stroke-width:2px;
+    classDef component fill:#EFF6FF,stroke:#3B82F6,color:#1E40AF,rx:8,ry:8,stroke-width:2px;
+    classDef database fill:#F3F4F6,stroke:#4B5563,color:#1F2937,rx:8,ry:8,stroke-width:2px;
+    classDef external fill:#FCE7F3,stroke:#EF4444,color:#991B1B,rx:8,ry:8,stroke-width:2px;
+    classDef boundary fill:none,stroke:#9CA3AF,stroke-width:2px,stroke-dasharray: 5 5;
 
-    subgraph "VyapaarClaw Enclave"
+    subgraph VyapaarClaw[VyapaarClaw System Boundary]
         direction TB
         
-        TUI["Terminal UI<br/>(Textual)"]:::web
-        Web["Web Dashboard<br/>(Next.js React)"]:::web
+        %% Interfaces
+        TUI["Terminal UI<br/>[Textual Component]"]:::component
+        Web["Web Dashboard<br/>[Next.js Component]"]:::component
         
-        Server["MCP Server Engine<br/>(FastAPI / MCP Async)"]:::mcp
+        %% Core
+        Server["MCP Server Engine<br/>[FastAPI Component]"]:::system
         
-        subgraph Agents
-            CFO["AI CFO Agent<br/>(Llama/Mistral)"]:::agent
-            Governance["Policy Validator"]:::agent
+        %% Agent Layer
+        subgraph AgentsBoundary[Intelligent Agents]
+            CFO["AI CFO Agent<br/>[LLM Component]"]:::component
+            Governance["Policy Validator<br/>[Logic Component]"]:::component
         end
         
-        DB[("PostgreSQL<br/>Audit & Policies")]:::db
-        Redis[("Redis Cache<br/>Rate Limits")]:::db
+        %% Persistence
+        subgraph DataBoundary[Persistence Layer]
+            DB[("PostgreSQL<br/>[Relational DB]")]:::database
+            Redis[("Redis Cache<br/>[In-Memory Store]")]:::database
+        end
     end
 
-    subgraph "External Providers"
-        Razorpay[Razorpay API]:::external
-        Slack[Slack Webhooks]:::external
+    subgraph External[External Systems Boundary]
+        Razorpay["Razorpay API<br/>[Payment Gateway]"]:::external
+        Slack["Slack Webhooks<br/>[Notification System]"]:::external
     end
     
-    %% Connections
-    TUI <--> Server
-    Web <--> Server
+    %% Relationships
+    TUI -->|Interacts via API| Server
+    Web -->|Interacts via API| Server
     
-    Server --> Agents
-    CFO <--> Governance
+    Server -->|Orchestrates| AgentsBoundary
+    CFO <-->|Coordinates| Governance
     
-    Server <--> DB
-    Server <--> Redis
+    Server -->|Reads/Writes| DataBoundary
     
-    Server <--> Razorpay
-    Server --> Slack
+    Server <-->|API Calls| Razorpay
+    Server -->|Pushes Notifications| Slack
+
+    %% Apply boundary styling
+    class VyapaarClaw,AgentsBoundary,DataBoundary,External boundary
