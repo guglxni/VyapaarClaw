@@ -2044,7 +2044,7 @@ async def convert_currency(
     """
     from vyapaar_mcp.cfo.currency import convert_amount
 
-    return await convert_amount(amount, from_currency, to_currency, date)
+    return await convert_amount(amount, from_currency, to_currency, date, redis_client=_redis)
 
 
 @mcp.tool()

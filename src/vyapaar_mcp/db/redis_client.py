@@ -308,3 +308,24 @@ return {1, current + 1, window}
                 agent_ids.append(parts[2])
 
         return agent_ids
+
+    # ================================================================
+    # CFO Intelligence: FX Rate Caching (Resiliency)
+    # ================================================================
+
+    def _fx_key(self, base: str, target: str, date_str: str) -> str:
+        """Generate cache key for FX rates: vyapaar:fx:{base}:{target}:{date}."""
+        return f"vyapaar:fx:{base.upper()}:{target.upper()}:{date_str}"
+
+    async def get_cached_fx_rate(self, base: str, target: str, date_str: str) -> dict[str, Any] | None:
+        """Get cached FX rate if available."""
+        key = self._fx_key(base, target, date_str)
+        cached = await self.client.get(key)
+        if cached:
+            return json.loads(cached)  # type: ignore[no-any-return]
+        return None
+
+    async def cache_fx_rate(self, base: str, target: str, date_str: str, data: dict[str, Any], ttl: int = 43200) -> None:
+        """Cache FX rate (default 12 hours TTL for live rates)."""
+        key = self._fx_key(base, target, date_str)
+        await self.client.setex(key, ttl, json.dumps(data))
