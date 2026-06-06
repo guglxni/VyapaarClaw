@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 
 import httpx
@@ -23,6 +24,16 @@ MAX_RETRIES = 3
 BASE_DELAY = 1.0
 MAX_DELAY = 30.0
 BACKOFF_MULTIPLIER = 2.0
+RAZORPAY_SDK_ERRORS = (
+    razorpay.errors.BadRequestError,
+    razorpay.errors.GatewayError,
+    razorpay.errors.ServerError,
+    razorpay.errors.SignatureVerificationError,
+)
+RAZORPAY_RETRY_ERRORS = (
+    razorpay.errors.GatewayError,
+    razorpay.errors.SignatureVerificationError,
+)
 
 
 class RazorpayActions:
@@ -86,7 +97,7 @@ class RazorpayActions:
                 logger.error("%s failed with client error: %s", operation, mask_secrets(str(e)))
                 raise
 
-            except Exception as e:
+            except (httpx.HTTPError, json.JSONDecodeError, *RAZORPAY_RETRY_ERRORS) as e:
                 last_error = e
                 logger.error("%s unexpected error: %s", operation, mask_secrets(str(e)))
                 if attempt == MAX_RETRIES:
@@ -171,5 +182,5 @@ class RazorpayActions:
                 {"count": 1},
             )
             return True
-        except Exception:
+        except (*RAZORPAY_SDK_ERRORS, OSError):
             return False

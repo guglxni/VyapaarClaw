@@ -11,17 +11,17 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from contextlib import asynccontextmanager
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import Response
 from starlette.routing import Mount, Route
+from transitions.core import MachineError
 
 from vyapaar_mcp.audit.logger import log_decision
-from vyapaar_mcp.config import VyapaarConfig, load_config
+from vyapaar_mcp.config import load_config
 from vyapaar_mcp.db.postgres import PostgresClient
 from vyapaar_mcp.db.redis_client import RedisClient
 from vyapaar_mcp.egress.ntfy_notifier import NtfyNotifier, notify_with_fallback
@@ -29,6 +29,11 @@ from vyapaar_mcp.egress.razorpay_actions import RazorpayActions
 from vyapaar_mcp.egress.slack_notifier import SlackNotifier
 from vyapaar_mcp.egress.telegram_notifier import TelegramNotifier
 from vyapaar_mcp.governance.engine import GovernanceEngine
+from vyapaar_mcp.handlers.http import (
+    make_health_endpoint,
+    make_slack_actions_endpoint,
+    make_telegram_callback_endpoint,
+)
 from vyapaar_mcp.ingress.polling import PayoutPoller
 from vyapaar_mcp.ingress.razorpay_bridge import RazorpayBridge
 from vyapaar_mcp.ingress.webhook import (
@@ -36,7 +41,8 @@ from vyapaar_mcp.ingress.webhook import (
     parse_webhook_event,
     verify_razorpay_signature,
 )
-from vyapaar_mcp.llm import AzureOpenAIClient, SecurityLLMClient
+from vyapaar_mcp.lifecycle import make_lifespan
+from vyapaar_mcp.llm import LLMClient
 from vyapaar_mcp.llm.security_validator import ToolCallValidator
 from vyapaar_mcp.models import (
     AgentPolicy,
@@ -50,6 +56,14 @@ from vyapaar_mcp.reputation.anomaly import TransactionAnomalyScorer
 from vyapaar_mcp.reputation.gleif import GLEIFChecker
 from vyapaar_mcp.reputation.safe_browsing import SafeBrowsingChecker
 from vyapaar_mcp.resilience import CircuitBreaker
+from vyapaar_mcp.server_state import state
+from vyapaar_mcp.server_support import (
+    AUDIT_READ_ERRORS,
+    NOTIFICATION_UPDATE_ERRORS,
+    RAZORPAY_ACTION_ERRORS,
+    SERVICE_CONNECT_ERRORS,
+    require_services,
+)
 
 # ================================================================
 # Logging Setup
@@ -62,45 +76,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger("vyapaar_mcp")
 
-# ================================================================
-# Global State (initialized in lifespan)
-# ================================================================
-
-_config: VyapaarConfig | None = None
-_redis: RedisClient | None = None
-_postgres: PostgresClient | None = None
-_safe_browsing: SafeBrowsingChecker | None = None
-_razorpay: RazorpayActions | None = None
-_razorpay_bridge: RazorpayBridge | None = None
-_slack: SlackNotifier | None = None
-_poller: PayoutPoller | None = None
-_governance: GovernanceEngine | None = None
-_poll_task: asyncio.Task[None] | None = None
-_start_time: float = time.time()
-_cb_razorpay: CircuitBreaker | None = None
-_cb_safe_browsing: CircuitBreaker | None = None
-_cb_gleif: CircuitBreaker | None = None
-_gleif: GLEIFChecker | None = None
-_anomaly_scorer: TransactionAnomalyScorer | None = None
-_ntfy: NtfyNotifier | None = None
-_telegram: TelegramNotifier | None = None
-_azure_llm: AzureOpenAIClient | None = None
-_security_llm: SecurityLLMClient | None = None
-_tool_validator: ToolCallValidator | None = None
-
-
 def _require(**services: Any) -> None:
     """Validate that required server components are initialized.
 
     Raises RuntimeError instead of using assert (which is stripped
     with ``python -O``).
     """
-    missing = [name for name, obj in services.items() if obj is None]
-    if missing:
-        raise RuntimeError(
-            f"Server not initialised — missing: {', '.join(missing)}. "
-            "Ensure startup() completed successfully."
-        )
+    require_services(**services)
 
 
 # ================================================================
@@ -108,14 +90,7 @@ def _require(**services: Any) -> None:
 # ================================================================
 
 
-@asynccontextmanager
-async def _lifespan(server: FastMCP) -> Any:
-    """FastMCP lifespan context manager — runs startup/shutdown."""
-    await _startup()
-    try:
-        yield
-    finally:
-        await _shutdown()
+_lifespan = make_lifespan(lambda: _startup(), lambda: _shutdown())
 
 
 mcp = FastMCP(
@@ -132,127 +107,13 @@ mcp = FastMCP(
 )
 
 
-@mcp.custom_route("/health", methods=["GET"])  # type: ignore[misc]
-async def health_endpoint(request: Request) -> JSONResponse:
-    """HTTP Health Check for monitoring, load balancers, and web UI."""
-    redis_ok = await _redis.ping() if _redis else False
-    postgres_ok = await _postgres.ping() if _postgres else False
-    return JSONResponse(
-        {
-            "status": "ok" if (redis_ok and postgres_ok) else "degraded",
-            "service": "vyapaarclaw",
-            "version": "0.1.0",
-            "uptime_seconds": int(time.time() - _start_time),
-            "redis": "ok" if redis_ok else "error",
-            "postgres": "ok" if postgres_ok else "error",
-        }
+health_endpoint = mcp.custom_route("/health", methods=["GET"])(  # type: ignore[misc]
+    make_health_endpoint(
+        get_redis=lambda: state.redis,
+        get_postgres=lambda: state.postgres,
+        get_start_time=lambda: state.start_time,
     )
-
-
-async def slack_actions_endpoint(request: Request) -> JSONResponse:
-    """Receive Slack interactive component callbacks (button clicks).
-
-    Slack POSTs a url-encoded payload when a user clicks Approve/Reject.
-    This endpoint verifies the signature, parses the action, and routes
-    it to the handle_slack_action tool internally.
-    """
-    import json as _json
-    from urllib.parse import parse_qs
-
-    body_bytes = await request.body()
-    body_str = body_bytes.decode("utf-8")
-
-    # Verify Slack signature when signing secret is configured
-    if _config and _config.slack_signing_secret:
-        from vyapaar_mcp.egress.slack_notifier import verify_slack_signature
-
-        timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
-        signature = request.headers.get("X-Slack-Signature", "")
-        if not verify_slack_signature(body_str, timestamp, signature, _config.slack_signing_secret):
-            return JSONResponse({"error": "invalid signature"}, status_code=401)
-
-    # Slack sends payload as url-encoded form: payload=<JSON>
-    parsed = parse_qs(body_str)
-    raw_payload = parsed.get("payload", [""])[0]
-    if not raw_payload:
-        return JSONResponse({"error": "missing payload"}, status_code=400)
-
-    try:
-        payload = _json.loads(raw_payload)
-    except _json.JSONDecodeError:
-        return JSONResponse({"error": "invalid JSON payload"}, status_code=400)
-
-    actions = payload.get("actions", [])
-    if not actions:
-        return JSONResponse({"error": "no actions in payload"}, status_code=400)
-
-    action = actions[0]
-    action_id = action.get("action_id", "")
-    payout_id = action.get("value", "")
-    user_name = payload.get("user", {}).get("username", "unknown")
-    channel = payload.get("channel", {}).get("id")
-    message_ts = payload.get("message", {}).get("ts")
-
-    _require(razorpay=_razorpay)
-
-    result = await handle_slack_action(
-        action_id=action_id,
-        payout_id=payout_id,
-        user_name=user_name,
-        channel=channel,
-        message_ts=message_ts,
-    )
-
-    return JSONResponse(result)
-
-
-async def telegram_callback_endpoint(request: Request) -> JSONResponse:
-    """Receive Telegram Bot API webhook updates (inline keyboard callbacks).
-
-    Telegram POSTs a JSON update when a user taps an inline keyboard button.
-    This endpoint parses the callback_query, extracts the action, and routes
-    it to handle_telegram_action.
-    """
-    import json as _json
-
-    try:
-        update = await request.json()
-    except Exception:
-        return JSONResponse({"error": "invalid JSON"}, status_code=400)
-
-    callback_query = update.get("callback_query")
-    if not callback_query:
-        return JSONResponse({"ok": True})
-
-    try:
-        data = _json.loads(callback_query.get("data", "{}"))
-    except (_json.JSONDecodeError, TypeError):
-        return JSONResponse({"error": "invalid callback_data"}, status_code=400)
-
-    action_id = data.get("a", "")
-    payout_id = data.get("p", "")
-    user = callback_query.get("from", {})
-    user_name = user.get("username") or user.get("first_name", "unknown")
-    message = callback_query.get("message", {})
-    chat_id = message.get("chat", {}).get("id")
-    message_id = message.get("message_id")
-    callback_query_id = callback_query.get("id")
-
-    if not action_id or not payout_id:
-        return JSONResponse({"error": "missing action or payout_id"}, status_code=400)
-
-    _require(razorpay=_razorpay)
-
-    result = await handle_telegram_action(
-        action_id=action_id,
-        payout_id=payout_id,
-        user_name=user_name,
-        chat_id=chat_id,
-        message_id=message_id,
-        callback_query_id=callback_query_id,
-    )
-
-    return JSONResponse(result)
+)
 
 
 # ================================================================
@@ -262,94 +123,71 @@ async def telegram_callback_endpoint(request: Request) -> JSONResponse:
 
 async def _startup() -> None:
     """Initialize all services on server start."""
-    global \
-        _config, \
-        _redis, \
-        _postgres, \
-        _safe_browsing, \
-        _razorpay, \
-        _razorpay_bridge, \
-        _slack, \
-        _telegram, \
-        _poller, \
-        _governance, \
-        _poll_task, \
-        _start_time, \
-        _cb_razorpay, \
-        _cb_safe_browsing, \
-        _cb_gleif, \
-        _gleif, \
-        _anomaly_scorer, \
-        _ntfy, \
-        _azure_llm, \
-        _security_llm, \
-        _tool_validator
-
-    _start_time = time.time()
-    _config = load_config()
+    state.start_time = time.time()
+    state.config = load_config()
 
     logger.info("=" * 60)
     logger.info("  VyapaarClaw — Starting up...")
     logger.info("=" * 60)
 
     # Redis
-    _redis = RedisClient(url=_config.redis_url)
+    state.redis = RedisClient(url=state.config.redis_url)
     try:
-        await _redis.connect()
+        await state.redis.connect()
         logger.info("✅ Redis connected")
-    except Exception as e:
+    except SERVICE_CONNECT_ERRORS as e:
         logger.error("❌ Redis connection failed: %s", e)
 
     # PostgreSQL
-    _postgres = PostgresClient(dsn=_config.postgres_dsn)
+    state.postgres = PostgresClient(dsn=state.config.postgres_dsn)
     try:
-        await _postgres.connect()
-        await _postgres.run_migrations()
+        await state.postgres.connect()
+        await state.postgres.run_migrations()
         logger.info("✅ PostgreSQL connected + migrations complete")
-    except Exception as e:
+    except SERVICE_CONNECT_ERRORS as e:
         logger.error("❌ PostgreSQL connection failed: %s", e)
 
     # Google Safe Browsing
-    _cb_safe_browsing = CircuitBreaker(
+    state.cb_safe_browsing = CircuitBreaker(
         "safe-browsing",
-        failure_threshold=_config.circuit_breaker_failure_threshold,
-        recovery_timeout=float(_config.circuit_breaker_recovery_timeout),
+        failure_threshold=state.config.circuit_breaker_failure_threshold,
+        recovery_timeout=float(state.config.circuit_breaker_recovery_timeout),
     )
-    _safe_browsing = SafeBrowsingChecker(
-        api_key=_config.google_safe_browsing_key,
-        api_url=_config.safe_browsing_api_url,
-        redis=_redis,
-        circuit_breaker=_cb_safe_browsing,
+    state.safe_browsing = SafeBrowsingChecker(
+        api_key=state.config.google_safe_browsing_key,
+        api_url=state.config.safe_browsing_api_url,
+        redis=state.redis,
+        circuit_breaker=state.cb_safe_browsing,
     )
     logger.info("✅ Safe Browsing checker initialized (circuit breaker enabled)")
 
     # Razorpay Actions (egress — approve/reject)
-    _cb_razorpay = CircuitBreaker(
+    state.cb_razorpay = CircuitBreaker(
         "razorpay",
-        failure_threshold=_config.circuit_breaker_failure_threshold,
-        recovery_timeout=float(_config.circuit_breaker_recovery_timeout),
+        failure_threshold=state.config.circuit_breaker_failure_threshold,
+        recovery_timeout=float(state.config.circuit_breaker_recovery_timeout),
     )
-    _razorpay = RazorpayActions(
-        key_id=_config.razorpay_key_id,
-        key_secret=_config.razorpay_key_secret,
-        circuit_breaker=_cb_razorpay,
+    state.razorpay = RazorpayActions(
+        key_id=state.config.razorpay_key_id,
+        key_secret=state.config.razorpay_key_secret,
+        circuit_breaker=state.cb_razorpay,
     )
     logger.info("✅ Razorpay egress client initialized (circuit breaker enabled)")
 
     # Razorpay Bridge (ingress — API calls, same as official MCP server)
-    _razorpay_bridge = RazorpayBridge(
-        key_id=_config.razorpay_key_id,
-        key_secret=_config.razorpay_key_secret,
+    state.razorpay_bridge = RazorpayBridge(
+        key_id=state.config.razorpay_key_id,
+        key_secret=state.config.razorpay_key_secret,
     )
     logger.info("✅ RazorpayBridge initialized (mirrors razorpay/razorpay-mcp-server tools)")
 
     # Slack Notifier (human-in-the-loop)
-    if _config.slack_bot_token and _config.slack_channel_id:
-        _slack = SlackNotifier(
-            bot_token=_config.slack_bot_token,
-            channel_id=_config.slack_channel_id,
+    if state.config.slack_bot_token and state.config.slack_channel_id:
+        state.slack = SlackNotifier(
+            bot_token=state.config.slack_bot_token,
+            channel_id=state.config.slack_channel_id,
         )
-        logger.info("✅ Slack notifier initialized (channel=%s)", _config.slack_channel_id)
+        logger.info("✅ Slack notifier initialized (channel=%s)", state.config.slack_channel_id)
     else:
         logger.warning(
             "⚠️  Slack not configured — HELD payouts will not trigger approval requests. "
@@ -357,12 +195,12 @@ async def _startup() -> None:
         )
 
     # Telegram Notifier (human-in-the-loop, alternative to Slack)
-    if _config.telegram_bot_token and _config.telegram_chat_id:
-        _telegram = TelegramNotifier(
-            bot_token=_config.telegram_bot_token,
-            chat_id=_config.telegram_chat_id,
+    if state.config.telegram_bot_token and state.config.telegram_chat_id:
+        state.telegram = TelegramNotifier(
+            bot_token=state.config.telegram_bot_token,
+            chat_id=state.config.telegram_chat_id,
         )
-        logger.info("✅ Telegram notifier initialized (chat_id=%s)", _config.telegram_chat_id)
+        logger.info("✅ Telegram notifier initialized (chat_id=%s)", state.config.telegram_chat_id)
     else:
         logger.info(
             "Telegram not configured — "
@@ -370,16 +208,16 @@ async def _startup() -> None:
         )
 
     # Payout Poller (replaces webhooks)
-    if _config.razorpay_account_number:
-        _poller = PayoutPoller(
-            bridge=_razorpay_bridge,
-            account_number=_config.razorpay_account_number,
-            redis=_redis,
-            poll_interval=_config.poll_interval,
+    if state.config.razorpay_account_number:
+        state.poller = PayoutPoller(
+            bridge=state.razorpay_bridge,
+            account_number=state.config.razorpay_account_number,
+            redis=state.redis,
+            poll_interval=state.config.poll_interval,
         )
         logger.info(
             "✅ PayoutPoller ready (interval=%ds, replaces webhook ingress)",
-            _config.poll_interval,
+            state.config.poll_interval,
         )
     else:
         logger.warning(
@@ -389,102 +227,108 @@ async def _startup() -> None:
         )
 
     # Governance Engine
-    _governance = GovernanceEngine(
-        redis=_redis,
-        postgres=_postgres,
-        safe_browsing=_safe_browsing,
-        rate_limit_max=_config.rate_limit_max_requests,
-        rate_limit_window=_config.rate_limit_window_seconds,
+    state.governance = GovernanceEngine(
+        redis=state.redis,
+        postgres=state.postgres,
+        safe_browsing=state.safe_browsing,
+        rate_limit_max=state.config.rate_limit_max_requests,
+        rate_limit_window=state.config.rate_limit_window_seconds,
     )
     logger.info(
         "✅ Governance engine ready (rate limit: %d req / %ds window)",
-        _config.rate_limit_max_requests,
-        _config.rate_limit_window_seconds,
+        state.config.rate_limit_max_requests,
+        state.config.rate_limit_window_seconds,
     )
 
     # GLEIF Vendor Verification (FOSS)
-    _cb_gleif = CircuitBreaker(
+    state.cb_gleif = CircuitBreaker(
         "gleif",
-        failure_threshold=_config.circuit_breaker_failure_threshold,
-        recovery_timeout=float(_config.circuit_breaker_recovery_timeout),
+        failure_threshold=state.config.circuit_breaker_failure_threshold,
+        recovery_timeout=float(state.config.circuit_breaker_recovery_timeout),
     )
-    _gleif = GLEIFChecker(
-        api_url=_config.gleif_api_url,
-        redis=_redis,
-        circuit_breaker=_cb_gleif,
+    state.gleif = GLEIFChecker(
+        api_url=state.config.gleif_api_url,
+        redis=state.redis,
+        circuit_breaker=state.cb_gleif,
     )
     logger.info("✅ GLEIF vendor verification initialized (circuit breaker enabled)")
 
     # Transaction Anomaly Scorer (FOSS — scikit-learn IsolationForest)
-    _anomaly_scorer = TransactionAnomalyScorer(
-        redis=_redis,
-        risk_threshold=_config.anomaly_risk_threshold,
+    state.anomaly_scorer = TransactionAnomalyScorer(
+        redis=state.redis,
+        risk_threshold=state.config.anomaly_risk_threshold,
     )
     logger.info(
         "✅ Transaction anomaly scorer initialized (threshold=%.2f)",
-        _config.anomaly_risk_threshold,
+        state.config.anomaly_risk_threshold,
     )
 
     # ntfy Notifier (FOSS — Slack fallback)
-    if _config.ntfy_topic:
-        _ntfy = NtfyNotifier(
-            topic=_config.ntfy_topic,
-            server_url=_config.ntfy_url,
-            auth_token=_config.ntfy_auth_token or None,
+    if state.config.ntfy_topic:
+        state.ntfy = NtfyNotifier(
+            topic=state.config.ntfy_topic,
+            server_url=state.config.ntfy_url,
+            auth_token=state.config.ntfy_auth_token or None,
         )
         logger.info(
             "✅ ntfy notifier initialized (topic=%s, server=%s)",
-            _config.ntfy_topic,
-            _config.ntfy_url,
+            state.config.ntfy_topic,
+            state.config.ntfy_url,
         )
     else:
         logger.info("ℹ️  ntfy not configured — set VYAPAAR_NTFY_TOPIC to enable push fallback")
 
-    # Azure OpenAI Client (Microsoft AI Foundry)
-    _azure_llm = AzureOpenAIClient(_config)
+    # Primary LLM Client (LiteLLM — any provider)
+    state.llm_client = LLMClient(state.config)
     try:
-        await _azure_llm.initialize()
-        if _azure_llm.is_configured:
+        await state.llm_client.initialize()
+        if state.llm_client.is_configured:
             logger.info(
-                "✅ Azure OpenAI initialized (deployment=%s, guardrails=%s)",
-                _config.azure_openai_deployment,
-                _config.azure_guardrails_enabled,
+                "✅ LLM client initialized (model=%s, guardrails=%s)",
+                state.config.llm_model,
+                state.config.azure_guardrails_enabled,
             )
         else:
             logger.info(
-                "ℹ️  Azure OpenAI not configured — "
-                "set VYAPAAR_AZURE_OPENAI_ENDPOINT and VYAPAAR_AZURE_OPENAI_API_KEY"
+                "ℹ️  LLM not configured — "
+                "set VYAPAAR_LLM_MODEL and VYAPAAR_LLM_API_KEY"
             )
-    except Exception as e:
-        logger.warning("⚠️  Azure OpenAI initialization skipped: %s", e)
+    except (RuntimeError, ValueError, TypeError) as exc:
+        logger.warning("⚠️  LLM initialization skipped: %s", exc)
 
     # Security LLM / Dual LLM Quarantine Pattern
-    _tool_validator = ToolCallValidator(_config)
+    state.tool_validator = ToolCallValidator(state.config)
     try:
-        await _tool_validator.initialize()
-        if _tool_validator.is_configured:
+        await state.tool_validator.initialize()
+        if state.tool_validator.is_configured:
             logger.info(
                 "✅ Dual LLM quarantine initialized (security_llm=%s, strict=%s)",
-                _config.security_llm_url,
-                _config.quarantine_strict,
+                state.config.security_llm_model,
+                state.config.quarantine_strict,
             )
-            logger.info("   Taint sources: %s", _config.taint_sources.replace(",", ", "))
-            logger.info("   Dual-LLM tools: %s", _config.dual_llm_tools.replace(",", ", "))
+            logger.info("   Taint sources: %s", state.config.taint_sources.replace(",", ", "))
+            logger.info("   Dual-LLM tools: %s", state.config.dual_llm_tools.replace(",", ", "))
         else:
             logger.info(
-                "ℹ️  Dual LLM quarantine not configured — set VYAPAAR_SECURITY_LLM_URL to enable"
+                "ℹ️  Dual LLM quarantine not configured — set VYAPAAR_SECURITY_LLM_MODEL to enable"
             )
-    except Exception as e:
-        logger.warning("⚠️  Dual LLM quarantine initialization skipped: %s", e)
+    except (RuntimeError, ValueError, TypeError) as exc:
+        logger.warning("⚠️  Dual LLM quarantine initialization skipped: %s", exc)
 
     # Auto-polling (background task)
-    if _config.auto_poll and _poller and _governance and _razorpay and _postgres:
+    if (
+        state.config.auto_poll
+        and state.poller
+        and state.governance
+        and state.razorpay
+        and state.postgres
+    ):
 
         async def _auto_poll_callback(payout: Any, agent_id: str, vendor_url: str | None) -> None:
             """Process a polled payout through governance."""
-            _require(governance=_governance, razorpay=_razorpay, postgres=_postgres)
+            _require(governance=state.governance, razorpay=state.razorpay, postgres=state.postgres)
 
-            result = await _governance.evaluate(payout, agent_id, vendor_url)
+            result = await state.governance.evaluate(payout, agent_id, vendor_url)
             metrics.record_decision(result)
 
             vendor_name: str | None = None
@@ -495,37 +339,44 @@ async def _startup() -> None:
             ):
                 vendor_name = payout.fund_account.contact.name
 
-            await log_decision(_postgres, result, vendor_name=vendor_name, vendor_url=vendor_url)
+            await log_decision(
+                state.postgres,
+                result,
+                vendor_name=vendor_name,
+                vendor_url=vendor_url,
+            )
 
             try:
                 if result.decision == Decision.APPROVED:
-                    await _razorpay.approve_payout(payout.id)
+                    await state.razorpay.approve_payout(payout.id)
                 elif result.decision == Decision.REJECTED:
-                    await _razorpay.reject_payout(
+                    await state.razorpay.reject_payout(
                         payout.id,
                         f"{result.reason_code.value}: {result.reason_detail}",
                     )
-            except Exception as e:
+            except RAZORPAY_ACTION_ERRORS as e:
                 logger.error("Auto-poll action failed for %s: %s", payout.id, e)
-                if result.decision == Decision.APPROVED and _redis:
-                    await _redis.rollback_budget(result.agent_id, result.amount)
+                if result.decision == Decision.APPROVED and state.redis:
+                    await state.redis.rollback_budget(result.agent_id, result.amount)
                     logger.warning(
                         "Budget rolled back for %s: %d paise", result.agent_id, result.amount
                     )
 
             await notify_with_fallback(
-                _slack,
-                _ntfy,
+                state.slack,
+                state.ntfy,
                 result,
                 vendor_name=vendor_name,
                 vendor_url=vendor_url,
-                telegram_notifier=_telegram,
+                telegram_notifier=state.telegram,
             )
 
-        _poll_task = asyncio.create_task(_poller.run_continuous(on_payout=_auto_poll_callback))
+        state.poll_task = asyncio.create_task(
+            state.poller.run_continuous(on_payout=_auto_poll_callback)
+        )
         logger.info(
             "🔄 Auto-polling ENABLED (interval=%ds)",
-            _config.poll_interval,
+            state.config.poll_interval,
         )
 
     logger.info("=" * 60)
@@ -538,28 +389,28 @@ async def _startup() -> None:
 async def _shutdown() -> None:
     """Cleanup on server shutdown."""
     logger.info("VyapaarClaw shutting down...")
-    if _poll_task and not _poll_task.done():
-        _poll_task.cancel()
-    if _poller:
-        _poller.stop()
-    if _slack:
-        await _slack.close()
-    if _telegram:
-        await _telegram.close()
-    if _ntfy:
-        await _ntfy.close()
-    if _gleif:
-        await _gleif.close()
-    if _safe_browsing:
-        await _safe_browsing.close()
-    if _azure_llm:
-        await _azure_llm.close()
-    if _tool_validator:
-        await _tool_validator.close()
-    if _redis:
-        await _redis.disconnect()
-    if _postgres:
-        await _postgres.disconnect()
+    if state.poll_task and not state.poll_task.done():
+        state.poll_task.cancel()
+    if state.poller:
+        state.poller.stop()
+    if state.slack:
+        await state.slack.close()
+    if state.telegram:
+        await state.telegram.close()
+    if state.ntfy:
+        await state.ntfy.close()
+    if state.gleif:
+        await state.gleif.close()
+    if state.safe_browsing:
+        await state.safe_browsing.close()
+    if state.llm_client:
+        await state.llm_client.close()
+    if state.tool_validator:
+        await state.tool_validator.close()
+    if state.redis:
+        await state.redis.disconnect()
+    if state.postgres:
+        await state.postgres.disconnect()
     logger.info("VyapaarClaw shutdown complete")
 
 
@@ -587,7 +438,11 @@ async def handle_razorpay_webhook(
         Decision result with payout_id, decision, and reason.
     """
     _require(
-        config=_config, redis=_redis, postgres=_postgres, governance=_governance, razorpay=_razorpay
+        config=state.config,
+        redis=state.redis,
+        postgres=state.postgres,
+        governance=state.governance,
+        razorpay=state.razorpay,
     )
 
     if not payload or len(payload) > 1_048_576:
@@ -600,7 +455,11 @@ async def handle_razorpay_webhook(
     payload_bytes = payload.encode("utf-8")
 
     # --- Step 1: Verify Signature ---
-    if not verify_razorpay_signature(payload_bytes, signature, _config.razorpay_webhook_secret):
+    if not verify_razorpay_signature(
+        payload_bytes,
+        signature,
+        state.config.razorpay_webhook_secret,
+    ):
         logger.warning("REJECTED: Invalid webhook signature")
         return {
             "decision": Decision.REJECTED.value,
@@ -629,7 +488,7 @@ async def handle_razorpay_webhook(
 
     # --- Step 4: Idempotency Check ---
     webhook_id = extract_webhook_id(event)
-    is_new = await _redis.check_idempotency(webhook_id)
+    is_new = await state.redis.check_idempotency(webhook_id)
     if not is_new:
         logger.info("Idempotent skip: webhook %s already processed", webhook_id)
         return {
@@ -650,36 +509,36 @@ async def handle_razorpay_webhook(
         vendor_name = payout.fund_account.contact.name
 
     # --- Step 6: Run Governance ---
-    result = await _governance.evaluate(payout, agent_id, vendor_url)
+    result = await state.governance.evaluate(payout, agent_id, vendor_url)
     metrics.record_decision(result)
 
     # --- Step 7: Write Audit Log ---
-    await log_decision(_postgres, result, vendor_name=vendor_name, vendor_url=vendor_url)
+    await log_decision(state.postgres, result, vendor_name=vendor_name, vendor_url=vendor_url)
 
     # --- Step 8: Execute Decision on Razorpay ---
     try:
         if result.decision == Decision.APPROVED:
-            await _razorpay.approve_payout(payout.id)
+            await state.razorpay.approve_payout(payout.id)
         elif result.decision == Decision.REJECTED:
-            await _razorpay.reject_payout(
+            await state.razorpay.reject_payout(
                 payout.id,
                 f"{result.reason_code.value}: {result.reason_detail}",
             )
         # HELD payouts are not auto-actioned (waiting for human approval)
-    except Exception as e:
+    except RAZORPAY_ACTION_ERRORS as e:
         logger.error("Razorpay action failed for %s: %s", payout.id, e)
         if result.decision == Decision.APPROVED:
-            await _redis.rollback_budget(result.agent_id, result.amount)
+            await state.redis.rollback_budget(result.agent_id, result.amount)
             logger.warning("Budget rolled back for %s: %d paise", result.agent_id, result.amount)
 
     # --- Step 9: Notification (Slack / Telegram / ntfy) ---
     await notify_with_fallback(
-        _slack,
-        _ntfy,
+        state.slack,
+        state.ntfy,
         result,
         vendor_name=vendor_name,
         vendor_url=vendor_url,
-        telegram_notifier=_telegram,
+        telegram_notifier=state.telegram,
     )
 
     return {
@@ -713,15 +572,15 @@ async def poll_razorpay_payouts(
         Summary of payouts found and governance decisions made.
     """
     _require(
-        config=_config,
-        redis=_redis,
-        razorpay_bridge=_razorpay_bridge,
-        governance=_governance,
-        razorpay=_razorpay,
-        postgres=_postgres,
+        config=state.config,
+        redis=state.redis,
+        razorpay_bridge=state.razorpay_bridge,
+        governance=state.governance,
+        razorpay=state.razorpay,
+        postgres=state.postgres,
     )
 
-    acct = account_number or _config.razorpay_account_number
+    acct = account_number or state.config.razorpay_account_number
     if not acct:
         return {
             "error": (
@@ -733,10 +592,10 @@ async def poll_razorpay_payouts(
 
     # Create a one-shot poller
     poller = PayoutPoller(
-        bridge=_razorpay_bridge,
+        bridge=state.razorpay_bridge,
         account_number=acct,
-        redis=_redis,
-        poll_interval=_config.poll_interval,
+        redis=state.redis,
+        poll_interval=state.config.poll_interval,
     )
 
     # Poll once
@@ -754,7 +613,7 @@ async def poll_razorpay_payouts(
     results: list[dict[str, Any]] = []
     for payout, agent_id, vendor_url in new_payouts:
         # Run governance
-        result = await _governance.evaluate(payout, agent_id, vendor_url)
+        result = await state.governance.evaluate(payout, agent_id, vendor_url)
         metrics.record_decision(result)
 
         # Audit log
@@ -763,7 +622,7 @@ async def poll_razorpay_payouts(
             vendor_name = payout.fund_account.contact.name
 
         await log_decision(
-            _postgres,
+            state.postgres,
             result,
             vendor_name=vendor_name,
             vendor_url=vendor_url,
@@ -772,32 +631,32 @@ async def poll_razorpay_payouts(
         # Execute decision on Razorpay
         try:
             if result.decision == Decision.APPROVED:
-                await _razorpay.approve_payout(payout.id)
+                await state.razorpay.approve_payout(payout.id)
             elif result.decision == Decision.REJECTED:
-                await _razorpay.reject_payout(
+                await state.razorpay.reject_payout(
                     payout.id,
                     f"{result.reason_code.value}: {result.reason_detail}",
                 )
-        except Exception as e:
+        except RAZORPAY_ACTION_ERRORS as e:
             logger.error(
                 "Razorpay action failed for %s: %s",
                 payout.id,
                 e,
             )
             if result.decision == Decision.APPROVED:
-                await _redis.rollback_budget(result.agent_id, result.amount)
+                await state.redis.rollback_budget(result.agent_id, result.amount)
                 logger.warning(
                     "Budget rolled back for %s: %d paise", result.agent_id, result.amount
                 )
 
         # Notification (Slack / Telegram / ntfy)
         await notify_with_fallback(
-            _slack,
-            _ntfy,
+            state.slack,
+            state.ntfy,
             result,
             vendor_name=vendor_name,
             vendor_url=vendor_url,
-            telegram_notifier=_telegram,
+            telegram_notifier=state.telegram,
         )
 
         results.append(
@@ -831,9 +690,9 @@ async def check_vendor_reputation(url: str) -> dict[str, Any]:
     Returns:
         Safety result with threat details.
     """
-    _require(safe_browsing=_safe_browsing)
+    _require(safe_browsing=state.safe_browsing)
 
-    result = await _safe_browsing.check_url(url)
+    result = await state.safe_browsing.check_url(url)
     return {
         "url": url,
         "safe": result.is_safe,
@@ -852,13 +711,13 @@ async def get_agent_budget(agent_id: str) -> dict[str, Any]:
     Returns:
         Budget status with daily limit, spent today, and remaining.
     """
-    _require(redis=_redis, postgres=_postgres)
+    _require(redis=state.redis, postgres=state.postgres)
 
-    policy = await _postgres.get_agent_policy(agent_id)
+    policy = await state.postgres.get_agent_policy(agent_id)
     if policy is None:
         return {"error": f"No policy found for agent '{agent_id}'"}
 
-    spent_today = await _redis.get_daily_spend(agent_id)
+    spent_today = await state.redis.get_daily_spend(agent_id)
     remaining = max(0, policy.daily_limit - spent_today)
 
     status = BudgetStatus(
@@ -886,12 +745,12 @@ async def get_audit_log(
     Returns:
         List of audit log entries.
     """
-    _require(postgres=_postgres)
+    _require(postgres=state.postgres)
 
     # Clamp limit to prevent excessive queries
     limit = max(1, min(limit, 500))
 
-    entries = await _postgres.get_audit_logs(
+    entries = await state.postgres.get_audit_logs(
         agent_id=agent_id or None,
         payout_id=payout_id or None,
         limit=limit,
@@ -923,7 +782,7 @@ async def set_agent_policy(
     Returns:
         The created/updated policy.
     """
-    _require(postgres=_postgres)
+    _require(postgres=state.postgres)
 
     policy = AgentPolicy(
         agent_id=agent_id,
@@ -934,7 +793,7 @@ async def set_agent_policy(
         blocked_domains=blocked_domains or [],
     )
 
-    saved = await _postgres.upsert_agent_policy(policy)
+    saved = await state.postgres.upsert_agent_policy(policy)
     return {"status": "ok", "policy": saved.model_dump(mode="json")}
 
 
@@ -945,25 +804,25 @@ async def health_check() -> dict[str, Any]:
     Returns status of Redis, PostgreSQL, and Razorpay connectivity,
     plus server uptime and circuit breaker states.
     """
-    redis_ok = await _redis.ping() if _redis else False
-    postgres_ok = await _postgres.ping() if _postgres else False
-    razorpay_ok = await _razorpay.ping() if _razorpay else False
+    redis_ok = await state.redis.ping() if state.redis else False
+    postgres_ok = await state.postgres.ping() if state.postgres else False
+    razorpay_ok = await state.razorpay.ping() if state.razorpay else False
 
     status = HealthStatus(
         redis="ok" if redis_ok else "error",
         postgres="ok" if postgres_ok else "error",
         razorpay="ok" if razorpay_ok else "error",
-        uptime_seconds=int(time.time() - _start_time),
+        uptime_seconds=int(time.time() - state.start_time),
     )
 
     result = status.model_dump()
     # Include circuit breaker snapshots
-    if _cb_razorpay is not None:
-        result["circuit_breaker_razorpay"] = _cb_razorpay.snapshot()
-    if _cb_safe_browsing is not None:
-        result["circuit_breaker_safe_browsing"] = _cb_safe_browsing.snapshot()
-    if _cb_gleif is not None:
-        result["circuit_breaker_gleif"] = _cb_gleif.snapshot()
+    if state.cb_razorpay is not None:
+        result["circuit_breaker_razorpay"] = state.cb_razorpay.snapshot()
+    if state.cb_safe_browsing is not None:
+        result["circuit_breaker_safe_browsing"] = state.cb_safe_browsing.snapshot()
+    if state.cb_gleif is not None:
+        result["circuit_breaker_gleif"] = state.cb_gleif.snapshot()
     return result
 
 
@@ -1006,13 +865,13 @@ async def handle_slack_action(
     Returns:
         Result of the approve/reject action plus message update status.
     """
-    _require(razorpay=_razorpay)
+    _require(razorpay=state.razorpay)
 
     if action_id == "approve_payout":
-        result = await _razorpay.approve_payout(payout_id)
+        result = await state.razorpay.approve_payout(payout_id)
         action_label = "approved"
     elif action_id == "reject_payout":
-        result = await _razorpay.reject_payout(
+        result = await state.razorpay.reject_payout(
             payout_id, reason="Rejected via Slack by human operator"
         )
         action_label = "rejected"
@@ -1020,12 +879,12 @@ async def handle_slack_action(
         # --- Budget Rollback for HELD payouts ---
         # If a payout was HELD, its budget was already deducted.
         # When rejecting it, we MUST roll back the budget in Redis.
-        if _postgres and _redis:
-            audit_logs = await _postgres.get_audit_logs(payout_id=payout_id, limit=1)
+        if state.postgres and state.redis:
+            audit_logs = await state.postgres.get_audit_logs(payout_id=payout_id, limit=1)
             if audit_logs:
                 log = audit_logs[0]
                 if log.decision == Decision.HELD:
-                    await _redis.rollback_budget(log.agent_id, log.amount)
+                    await state.redis.rollback_budget(log.agent_id, log.amount)
                     logger.info(
                         "Budget rolled back via Slack action: agent=%s amount=%d",
                         log.agent_id,
@@ -1043,9 +902,9 @@ async def handle_slack_action(
 
     # Update the Slack message to reflect the decision
     message_updated = False
-    if _slack and channel and message_ts:
+    if state.slack and channel and message_ts:
         try:
-            await _slack.update_approval_message(
+            await state.slack.update_approval_message(
                 channel=channel,
                 message_ts=message_ts,
                 payout_id=payout_id,
@@ -1053,10 +912,10 @@ async def handle_slack_action(
                 user_name=user_name,
             )
             message_updated = True
-        except Exception as exc:
+        except NOTIFICATION_UPDATE_ERRORS as exc:
             logger.warning("Failed to update Slack message: %s", exc)
 
-    if _postgres:
+    if state.postgres:
         logger.info(
             "Audit: slack:%s %s payout %s",
             user_name,
@@ -1099,23 +958,23 @@ async def handle_telegram_action(
     Returns:
         Result of the approve/reject action plus message update status.
     """
-    _require(razorpay=_razorpay)
+    _require(razorpay=state.razorpay)
 
     if action_id == "approve_payout":
-        result = await _razorpay.approve_payout(payout_id)
+        result = await state.razorpay.approve_payout(payout_id)
         action_label = "approved"
     elif action_id == "reject_payout":
-        result = await _razorpay.reject_payout(
+        result = await state.razorpay.reject_payout(
             payout_id, reason="Rejected via Telegram by human operator"
         )
         action_label = "rejected"
 
-        if _postgres and _redis:
-            audit_logs = await _postgres.get_audit_logs(payout_id=payout_id, limit=1)
+        if state.postgres and state.redis:
+            audit_logs = await state.postgres.get_audit_logs(payout_id=payout_id, limit=1)
             if audit_logs:
                 log = audit_logs[0]
                 if log.decision == Decision.HELD:
-                    await _redis.rollback_budget(log.agent_id, log.amount)
+                    await state.redis.rollback_budget(log.agent_id, log.amount)
                     logger.info(
                         "Budget rolled back via Telegram action: agent=%s amount=%d",
                         log.agent_id,
@@ -1127,9 +986,9 @@ async def handle_telegram_action(
     logger.info("Telegram action: %s %s payout %s", user_name, action_label, payout_id)
 
     message_updated = False
-    if _telegram and chat_id and message_id:
+    if state.telegram and chat_id and message_id:
         try:
-            await _telegram.update_message(
+            await state.telegram.update_message(
                 chat_id=chat_id,
                 message_id=message_id,
                 payout_id=payout_id,
@@ -1137,11 +996,11 @@ async def handle_telegram_action(
                 user_name=user_name,
             )
             message_updated = True
-        except Exception as exc:
+        except NOTIFICATION_UPDATE_ERRORS as exc:
             logger.warning("Failed to update Telegram message: %s", exc)
 
-    if _telegram and callback_query_id:
-        await _telegram.answer_callback(
+    if state.telegram and callback_query_id:
+        await state.telegram.answer_callback(
             callback_query_id,
             f"Payout {action_label} by {user_name}",
         )
@@ -1154,6 +1013,19 @@ async def handle_telegram_action(
         "message_updated": message_updated,
         **result,
     }
+
+
+slack_actions_endpoint = make_slack_actions_endpoint(
+    get_config=lambda: state.config,
+    get_razorpay=lambda: state.razorpay,
+    require_services=_require,
+    handle_slack_action=handle_slack_action,
+)
+telegram_callback_endpoint = make_telegram_callback_endpoint(
+    get_razorpay=lambda: state.razorpay,
+    require_services=_require,
+    handle_telegram_action=handle_telegram_action,
+)
 
 
 # ================================================================
@@ -1181,12 +1053,12 @@ async def verify_vendor_entity(
         Verification result with entity details, LEI, jurisdiction,
         and registration status (ISSUED = valid, LAPSED = expired).
     """
-    _require(gleif=_gleif)
+    _require(gleif=state.gleif)
 
     if lei and len(lei) == 20:
-        result = await _gleif.lookup_lei(lei)
+        result = await state.gleif.lookup_lei(lei)
     else:
-        result = await _gleif.search_entity(vendor_name)
+        result = await state.gleif.search_entity(vendor_name)
 
     response = result.to_dict()
     response["verified"] = result.is_verified
@@ -1219,9 +1091,9 @@ async def score_transaction_risk(
         whether it's flagged as anomalous, feature breakdown,
         and model training status.
     """
-    _require(anomaly_scorer=_anomaly_scorer)
+    _require(anomaly_scorer=state.anomaly_scorer)
 
-    score = await _anomaly_scorer.score_transaction(amount=amount, agent_id=agent_id)
+    score = await state.anomaly_scorer.score_transaction(amount=amount, agent_id=agent_id)
     metrics.record_anomaly_check(
         anomalous=score.is_anomalous,
         model_trained=score.model_trained,
@@ -1247,9 +1119,9 @@ async def get_agent_risk_profile(
     Returns:
         Transaction statistics and spending patterns.
     """
-    _require(anomaly_scorer=_anomaly_scorer)
+    _require(anomaly_scorer=state.anomaly_scorer)
 
-    return await _anomaly_scorer.get_agent_profile(agent_id)
+    return await state.anomaly_scorer.get_agent_profile(agent_id)
 
 
 # ================================================================
@@ -1268,13 +1140,13 @@ async def check_context_taint() -> dict[str, Any]:
     Returns:
         Taint status, sources that caused tainting, and affected tools.
     """
-    _require(tool_validator=_tool_validator)
+    _require(tool_validator=state.tool_validator)
 
     return {
-        "context_tainted": _tool_validator.is_tainted,
-        "taint_sources": _tool_validator._taint_sources,
-        "dual_llm_tools": _tool_validator._dual_llm_tools,
-        "security_llm_configured": _tool_validator.is_configured,
+        "context_tainted": state.tool_validator.is_tainted,
+        "taint_sources": state.tool_validator._taint_sources,
+        "dual_llm_tools": state.tool_validator._dual_llm_tools,
+        "security_llm_configured": state.tool_validator.is_configured,
     }
 
 
@@ -1298,12 +1170,12 @@ async def validate_tool_call_security(
         Validation result with approve/deny decision and reasoning.
     """
     _require(
-        tool_validator=_tool_validator,
-        postgres=_postgres,
+        tool_validator=state.tool_validator,
+        postgres=state.postgres,
     )
 
     # Get current governance policy for context
-    policy = await _postgres.get_agent_policy(agent_id)
+    policy = await state.postgres.get_agent_policy(agent_id)
     governance_policy = {
         "agent_id": agent_id,
         "daily_limit": str(policy.daily_limit) if policy else None,
@@ -1311,7 +1183,7 @@ async def validate_tool_call_security(
         "requires_approval_above": str(policy.require_approval_above) if policy else None,
     }
 
-    result = await _tool_validator.validate(
+    result = await state.tool_validator.validate(
         tool_name=tool_name,
         parameters=parameters,
         agent_id=agent_id,
@@ -1323,18 +1195,18 @@ async def validate_tool_call_security(
         "reason": result.reason,
         "risk_score": result.risk_score,
         "mitigation": result.mitigation,
-        "context_tainted": _tool_validator.is_tainted,
+        "context_tainted": state.tool_validator.is_tainted,
     }
 
 
 @mcp.tool()
-async def azure_chat(
+async def llm_chat(
     message: str,
     system_prompt: str = "You are a helpful assistant.",
     temperature: float = 0.7,
     max_tokens: int = 1000,
 ) -> dict[str, Any]:
-    """Send a chat completion request to Kimi K2.5 via Azure AI.
+    """Send a chat completion to the configured LLM (any provider via LiteLLM).
 
     Security note: This tool marks context as TAINTED because LLM responses
     can contain injected content. Subsequent high-privilege tool calls
@@ -1347,16 +1219,16 @@ async def azure_chat(
         max_tokens: Maximum tokens to generate.
 
     Returns:
-        LLM response text and token usage.
+        LLM response text.
     """
-    _require(azure_llm=_azure_llm, tool_validator=_tool_validator)
+    _require(llm_client=state.llm_client, tool_validator=state.tool_validator)
 
-    if not _azure_llm.is_configured:
+    if not state.llm_client.is_configured:
         return {
-            "error": "Kimi K2.5 not configured",
+            "error": "LLM not configured",
             "config_required": [
-                "VYAPAAR_AZURE_OPENAI_ENDPOINT",
-                "VYAPAAR_AZURE_OPENAI_API_KEY",
+                "VYAPAAR_LLM_MODEL",
+                "VYAPAAR_LLM_API_KEY",
             ],
         }
 
@@ -1365,7 +1237,7 @@ async def azure_chat(
         {"role": "user", "content": message},
     ]
 
-    response, status = await _azure_llm.chat_completion(
+    response, status = await state.llm_client.chat_completion(
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
@@ -1374,11 +1246,11 @@ async def azure_chat(
     if response is None:
         return {
             "error": status,
-            "hint": "Configure VYAPAAR_AZURE_OPENAI_ENDPOINT and VYAPAAR_AZURE_OPENAI_API_KEY",
+            "hint": "Configure VYAPAAR_LLM_MODEL and VYAPAAR_LLM_API_KEY",
         }
 
     # Taint context: LLM responses are untrusted
-    _tool_validator.mark_taint("azure_chat")
+    state.tool_validator.mark_taint("llm_chat")
 
     return {
         "response": response,
@@ -1387,35 +1259,39 @@ async def azure_chat(
 
 
 @mcp.tool()
-async def get_archestra_status() -> dict[str, Any]:
-    """Get Archestra deterministic policy enforcement status.
+async def get_security_status() -> dict[str, Any]:
+    """Get security proxy deterministic policy enforcement status.
 
     Returns current configuration for the security proxy layer that
     enforces hard boundaries on tool access (vs probabilistic guardrails).
 
     Returns:
-        Archestra config, taint tracking status, and policy tiers.
+        Security proxy config, taint tracking status, and policy tiers.
     """
-    _require(config=_config, tool_validator=_tool_validator)
+    _require(config=state.config, tool_validator=state.tool_validator)
 
     return {
-        "archestra_enabled": _config.archestra_enabled,
-        "archestra_url": _config.archestra_url,
-        "policy_set_id": _config.archestra_policy_set_id,
+        "security_proxy_enabled": state.config.security_proxy_enabled,
+        "security_proxy_url": state.config.security_proxy_url,
+        "policy_set_id": state.config.policy_set_id,
         "security_llm": {
-            "url": _config.security_llm_url,
-            "model": _config.security_llm_model,
-            "configured": _tool_validator.is_configured if _tool_validator else False,
+            "model": state.config.security_llm_model,
+            "base_url": state.config.security_llm_base_url,
+            "configured": state.tool_validator.is_configured if state.tool_validator else False,
         },
         "dual_llm_config": {
-            "taint_sources": _config.taint_sources.split(",") if _config.taint_sources else [],
-            "dual_llm_tools": _config.dual_llm_tools.split(",") if _config.dual_llm_tools else [],
-            "quarantine_strict": _config.quarantine_strict,
-            "audit_logging": _config.quarantine_audit_log,
+            "taint_sources": (
+                state.config.taint_sources.split(",") if state.config.taint_sources else []
+            ),
+            "dual_llm_tools": (
+                state.config.dual_llm_tools.split(",") if state.config.dual_llm_tools else []
+            ),
+            "quarantine_strict": state.config.quarantine_strict,
+            "audit_logging": state.config.quarantine_audit_log,
         },
         "azure_guardrails": {
-            "enabled": _config.azure_guardrails_enabled,
-            "severity": _config.azure_guardrails_severity,
+            "enabled": state.config.azure_guardrails_enabled,
+            "severity": state.config.azure_guardrails_severity,
         },
     }
 
@@ -1441,12 +1317,12 @@ async def forecast_cash_flow(agent_id: str = "", horizon_days: int = 7) -> dict[
         Per-agent forecasts with burn_rate_per_day, projected_exhaustion_days,
         trend (increasing/decreasing/stable), and budget_health (green/yellow/red).
     """
-    _require(redis=_redis, postgres=_postgres)
+    _require(redis=state.redis, postgres=state.postgres)
 
     if agent_id:
         agent_ids = [agent_id]
     else:
-        agents = await _postgres.list_all_agents()
+        agents = await state.postgres.list_all_agents()
         agent_ids = [a["agent_id"] for a in agents]
 
     if not agent_ids:
@@ -1454,7 +1330,7 @@ async def forecast_cash_flow(agent_id: str = "", horizon_days: int = 7) -> dict[
 
     forecasts = []
     for aid in agent_ids:
-        history = await _redis.get_historical_spend(aid, days=horizon_days)
+        history = await state.redis.get_historical_spend(aid, days=horizon_days)
         spends = [d["spend"] for d in history]
         nonzero_spends = [s for s in spends if s > 0]
 
@@ -1486,7 +1362,7 @@ async def forecast_cash_flow(agent_id: str = "", horizon_days: int = 7) -> dict[
         else:
             trend = "insufficient_data"
 
-        policy = await _postgres.get_agent_policy(aid)
+        policy = await state.postgres.get_agent_policy(aid)
         daily_limit = policy.daily_limit if policy else 500000
 
         utilisation = avg_daily / daily_limit if daily_limit > 0 else 0
@@ -1497,7 +1373,7 @@ async def forecast_cash_flow(agent_id: str = "", horizon_days: int = 7) -> dict[
         else:
             health = "green"
 
-        current_spend = await _redis.get_daily_spend(aid)
+        current_spend = await state.redis.get_daily_spend(aid)
         remaining_today = max(0, daily_limit - current_spend)
 
         forecasts.append(
@@ -1538,11 +1414,11 @@ async def generate_compliance_report(
         Structured compliance report with decision stats, risk indicators,
         and actionable recommendations.
     """
-    _require(postgres=_postgres)
+    _require(postgres=state.postgres)
 
     period_days = max(1, min(period_days, 365))
 
-    stats = await _postgres.get_compliance_stats(
+    stats = await state.postgres.get_compliance_stats(
         period_days=period_days,
         agent_id=agent_id or None,
     )
@@ -1623,10 +1499,10 @@ async def get_spending_trends(agent_id: str, days: int = 30) -> dict[str, Any]:
     Returns:
         Daily spend amounts with summary statistics.
     """
-    _require(redis=_redis)
+    _require(redis=state.redis)
 
     days = min(days, 90)
-    history = await _redis.get_historical_spend(agent_id, days=days)
+    history = await state.redis.get_historical_spend(agent_id, days=days)
 
     spends = [d["spend"] for d in history]
     nonzero = [s for s in spends if s > 0]
@@ -1670,7 +1546,7 @@ async def evaluate_payout(
         Full governance result including decision, reason, risk score,
         and all intermediate check results.
     """
-    _require(redis=_redis, postgres=_postgres, governance=_governance)
+    _require(redis=state.redis, postgres=state.postgres, governance=state.governance)
 
     from vyapaar_mcp.models import PayoutEntity, PayoutNotes
 
@@ -1688,10 +1564,10 @@ async def evaluate_payout(
         status="evaluation",
     )
 
-    result = await _governance.evaluate(payout, agent_id, vendor_url or None)
+    result = await state.governance.evaluate(payout, agent_id, vendor_url or None)
 
     await log_decision(
-        _postgres,
+        state.postgres,
         result,
         vendor_name=vendor_name,
         vendor_url=vendor_url,
@@ -1709,7 +1585,7 @@ async def evaluate_payout(
         "threat_types": result.threat_types,
         "processing_ms": result.processing_ms,
         "risk_assessment": {
-            "budget_remaining_after": (await _redis.get_daily_spend(agent_id)),
+            "budget_remaining_after": (await state.redis.get_daily_spend(agent_id)),
         },
     }
 
@@ -1726,15 +1602,15 @@ async def list_agents() -> dict[str, Any]:
         List of agents with their policies, current daily spend,
         and budget utilisation percentage.
     """
-    _require(redis=_redis, postgres=_postgres)
+    _require(redis=state.redis, postgres=state.postgres)
 
-    agents_raw = await _postgres.list_all_agents()
+    agents_raw = await state.postgres.list_all_agents()
 
     agents = []
     for agent in agents_raw:
         aid = agent["agent_id"]
         daily_limit = agent["daily_limit"]
-        current_spend = await _redis.get_daily_spend(aid)
+        current_spend = await state.redis.get_daily_spend(aid)
         utilisation = (current_spend / daily_limit * 100) if daily_limit > 0 else 0
 
         agents.append(
@@ -1776,10 +1652,10 @@ async def reallocate_budget(
     Returns:
         Updated policies for both agents with budget status.
     """
-    _require(redis=_redis, postgres=_postgres)
+    _require(redis=state.redis, postgres=state.postgres)
 
-    from_policy = await _postgres.get_agent_policy(from_agent_id)
-    to_policy = await _postgres.get_agent_policy(to_agent_id)
+    from_policy = await state.postgres.get_agent_policy(from_agent_id)
+    to_policy = await state.postgres.get_agent_policy(to_agent_id)
 
     if from_policy is None:
         return {"error": f"No policy found for agent '{from_agent_id}'"}
@@ -1789,11 +1665,11 @@ async def reallocate_budget(
     from_policy.daily_limit = new_from_limit
     to_policy.daily_limit = new_to_limit
 
-    await _postgres.upsert_agent_policy(from_policy)
-    await _postgres.upsert_agent_policy(to_policy)
+    await state.postgres.upsert_agent_policy(from_policy)
+    await state.postgres.upsert_agent_policy(to_policy)
 
-    from_spend = await _redis.get_daily_spend(from_agent_id)
-    to_spend = await _redis.get_daily_spend(to_agent_id)
+    from_spend = await state.redis.get_daily_spend(from_agent_id)
+    to_spend = await state.redis.get_daily_spend(to_agent_id)
 
     return {
         "status": "reallocated",
@@ -1826,16 +1702,16 @@ async def get_vendor_trust_score(vendor_url: str) -> dict[str, Any]:
     Returns:
         Trust score (0-100), transaction history summary, risk factors.
     """
-    _require(redis=_redis, postgres=_postgres)
+    _require(redis=state.redis, postgres=state.postgres)
     from urllib.parse import urlparse
 
     domain = urlparse(vendor_url).netloc or vendor_url
 
-    logs = await _postgres.get_audit_logs(limit=500)
+    logs = await state.postgres.get_audit_logs(limit=500)
     vendor_logs = [log for log in logs if log.vendor_url and domain in log.vendor_url]
 
     if not vendor_logs:
-        cached_rep = await _redis.get_cached_reputation(vendor_url)
+        cached_rep = await state.redis.get_cached_reputation(vendor_url)
         return {
             "vendor_url": vendor_url,
             "domain": domain,
@@ -1913,11 +1789,11 @@ async def get_financial_calendar(days_ahead: int = 7) -> dict[str, Any]:
         Recent activity summary, recurring patterns, and projected
         budget pressure for upcoming days.
     """
-    _require(redis=_redis, postgres=_postgres)
+    _require(redis=state.redis, postgres=state.postgres)
 
     days_ahead = min(days_ahead, 30)
 
-    logs = await _postgres.get_audit_logs(limit=200)
+    logs = await state.postgres.get_audit_logs(limit=200)
 
     from collections import Counter
     from datetime import datetime
@@ -1939,11 +1815,11 @@ async def get_financial_calendar(days_ahead: int = 7) -> dict[str, Any]:
         {"vendor": v, "transactions": c} for v, c in vendor_frequency.most_common(5) if c >= 2
     ]
 
-    agents_raw = await _postgres.list_all_agents()
+    agents_raw = await state.postgres.list_all_agents()
     pressure_points = []
     for agent in agents_raw:
         aid = agent["agent_id"]
-        history = await _redis.get_historical_spend(aid, days=7)
+        history = await state.redis.get_historical_spend(aid, days=7)
         recent_spends = [d["spend"] for d in history if d["spend"] > 0]
         if recent_spends:
             avg_daily = sum(recent_spends) / len(recent_spends)
@@ -2163,16 +2039,16 @@ async def forecast_budget_runway(
         agent_id: Agent to forecast.
         forecast_days: Days to project forward (max 90).
     """
-    _require(redis=_redis, postgres=_postgres)
+    _require(redis=state.redis, postgres=state.postgres)
 
     from vyapaar_mcp.cfo.forecaster import forecast_burn_rate
 
     forecast_days = min(forecast_days, 90)
 
-    history = await _redis.get_historical_spend(agent_id, days=30)
+    history = await state.redis.get_historical_spend(agent_id, days=30)
     daily_spends = [d["spend"] for d in history]
 
-    policy = await _postgres.get_policy(agent_id)
+    policy = await state.postgres.get_policy(agent_id)
     if not policy:
         return {"error": f"No policy found for agent '{agent_id}'"}
 
@@ -2244,7 +2120,7 @@ async def get_income_statement() -> dict[str, Any]:
 
 
 @mcp.tool()
-async def generate_compliance_report(
+async def generate_compliance_pdf(
     output_path: str = "",
 ) -> dict[str, Any]:
     """Generate a PDF compliance report with governance summary.
@@ -2260,14 +2136,19 @@ async def generate_compliance_report(
     # Gather data from available services
     summary: dict[str, Any] = {
         "budget_summary": {},
-        "risk_summary": {"total_reviewed": 0, "anomalies_detected": 0, "payouts_held": 0, "payouts_rejected": 0},
+        "risk_summary": {
+            "total_reviewed": 0,
+            "anomalies_detected": 0,
+            "payouts_held": 0,
+            "payouts_rejected": 0,
+        },
         "recent_transactions": [],
         "forecast": {"severity": "healthy"},
     }
 
-    if _postgres:
+    if state.postgres:
         try:
-            logs = await _postgres.get_audit_logs(limit=20)
+            logs = await state.postgres.get_audit_logs(limit=20)
             summary["recent_transactions"] = [
                 {
                     "date": log.created_at.strftime("%Y-%m-%d") if log.created_at else "",
@@ -2279,8 +2160,8 @@ async def generate_compliance_report(
                 for log in logs
             ]
             summary["risk_summary"]["total_reviewed"] = len(logs)
-        except Exception:
-            pass
+        except AUDIT_READ_ERRORS as exc:
+            logger.warning("Skipping audit-log section in compliance PDF: %s", exc)
 
     path = generate_governance_report(summary, output_path or "")
     return {"report_path": path, "status": "generated"}
@@ -2306,9 +2187,9 @@ async def detect_fraud_network(
 
     if transactions is None:
         transactions = []
-        if _postgres:
+        if state.postgres:
             try:
-                logs = await _postgres.get_audit_logs(limit=100)
+                logs = await state.postgres.get_audit_logs(limit=100)
                 transactions = [
                     {
                         "agent_id": log.agent_id,
@@ -2317,8 +2198,8 @@ async def detect_fraud_network(
                     }
                     for log in logs
                 ]
-            except Exception:
-                pass
+            except AUDIT_READ_ERRORS as exc:
+                logger.warning("Skipping audit-log load for fraud network: %s", exc)
 
     return detect_fraud_patterns(transactions)
 
@@ -2422,11 +2303,14 @@ async def manage_payout_workflow(
 
     trigger = transition_map.get(action)
     if not trigger:
-        return {"error": f"Unknown action: {action}", "available_actions": list(transition_map.keys())}
+        return {
+            "error": f"Unknown action: {action}",
+            "available_actions": list(transition_map.keys()),
+        }
 
     try:
         trigger(reason=reason)  # type: ignore[call-arg]
-    except Exception as exc:
+    except (MachineError, TypeError, AttributeError, ValueError) as exc:
         return {"error": str(exc), "current_state": wf.state}  # type: ignore[attr-defined]
 
     return wf.get_status()
@@ -2474,7 +2358,7 @@ def run_server_sync() -> None:
             return Response()
 
         starlette_app = Starlette(
-            debug=_config.dev_mode,
+            debug=state.config.dev_mode,
             routes=[
                 Route("/sse", endpoint=sse_handler, methods=["GET", "POST"]),
                 Mount("/messages/", app=sse.handle_post_message),

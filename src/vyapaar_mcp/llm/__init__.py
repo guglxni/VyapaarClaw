@@ -1,6 +1,6 @@
-"""LLM Clients — Kimi K2.5 (Azure AI) and Dual LLM Security Pattern."""
+from __future__ import annotations
 
-from vyapaar_mcp.llm.azure_client import AzureOpenAIClient
-from vyapaar_mcp.llm.security_validator import SecurityLLMClient, ToolCallValidator
+from vyapaar_mcp.llm.client import LLMClient
+from vyapaar_mcp.llm.security_validator import ToolCallValidator
 
-__all__ = ["AzureOpenAIClient", "SecurityLLMClient", "ToolCallValidator"]
+__all__ = ["LLMClient", "ToolCallValidator"]

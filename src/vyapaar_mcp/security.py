@@ -14,7 +14,7 @@ from typing import Any
 SECRET_PATTERNS = [
     # API keys, tokens, secrets
     (
-        r"(api[_-]?key|secret[_-]?key|auth[_-]?token|access[_-]?token)"
+        r"((?:api[_-]?key|secret[_-]?key|auth[_-]?token|access[_-]?token)"
         r"[=:]\s*[\"']?)([a-zA-Z0-9_\-]{8,})",
         r"\1****",
     ),
@@ -25,9 +25,7 @@ SECRET_PATTERNS = [
     # JWT tokens
     (r"(Bearer\s+)[a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+", r"\1****"),
     # Slack tokens
-    (r"(xox[baprs]-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24,})", r"\1****"),
-    # Generic long alphanumeric strings that look like secrets
-    (r"([a-zA-Z0-9]{32,})", r"****"),
+    (r"(xox[baprs]-)[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24,}", r"\1****"),
 ]
 
 

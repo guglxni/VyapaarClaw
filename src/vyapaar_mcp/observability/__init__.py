@@ -1,7 +1,6 @@
 """Prometheus-compatible metrics for VyapaarClaw.
 
 Exposes governance metrics in Prometheus text format at /metrics.
-Designed for Archestra observability integration.
 
 Per SPEC §19 Nice-to-Have: "Prometheus-compatible /metrics endpoint."
 

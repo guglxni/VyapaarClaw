@@ -21,7 +21,8 @@ from typing import Any
 from urllib.parse import quote
 
 import httpx
-from pydantic import BaseModel, Field
+import redis
+from pydantic import BaseModel, Field, ValidationError
 
 from vyapaar_mcp.db.redis_client import RedisClient
 from vyapaar_mcp.resilience import CircuitBreaker, CircuitOpenError
@@ -141,7 +142,7 @@ class GLEIFChecker:
                 if cached:
                     logger.debug("GLEIF cache HIT for '%s'", name)
                     return self._deserialize(name, cached)
-            except Exception as e:
+            except (redis.exceptions.RedisError, ConnectionError, TimeoutError) as e:
                 logger.warning("GLEIF cache read error: %s", e)
 
         # --- Call GLEIF API (through circuit breaker) ---
@@ -157,7 +158,7 @@ class GLEIFChecker:
                     await self._redis._client.set(
                         cache_key, json.dumps(response.to_dict()), ex=_CACHE_TTL
                     )
-                except Exception as e:
+                except (redis.exceptions.RedisError, ConnectionError, TimeoutError) as e:
                     logger.warning("GLEIF cache write error: %s", e)
 
             return response
@@ -179,7 +180,7 @@ class GLEIFChecker:
             )
             return GLEIFResponse(query=name, error=f"GLEIF API HTTP {e.response.status_code}")
 
-        except Exception as e:
+        except httpx.HTTPError as e:
             logger.error("Unexpected GLEIF error for query '%s': %s", name, e)
             return GLEIFResponse(query=name, error=f"GLEIF error: {e}")
 
@@ -204,7 +205,7 @@ class GLEIFChecker:
                 if cached:
                     logger.debug("GLEIF cache HIT for LEI '%s'", lei)
                     return self._deserialize(lei, cached)
-            except Exception as e:
+            except (redis.exceptions.RedisError, ConnectionError, TimeoutError) as e:
                 logger.warning("GLEIF cache read error: %s", e)
 
         # --- Call GLEIF API ---
@@ -219,7 +220,7 @@ class GLEIFChecker:
                     await self._redis._client.set(
                         cache_key, json.dumps(response.to_dict()), ex=_CACHE_TTL
                     )
-                except Exception as e:
+                except (redis.exceptions.RedisError, ConnectionError, TimeoutError) as e:
                     logger.warning("GLEIF cache write error: %s", e)
 
             return response
@@ -232,7 +233,7 @@ class GLEIFChecker:
             logger.error("GLEIF API TIMEOUT for LEI '%s'", lei)
             return GLEIFResponse(query=lei, error="GLEIF API timeout")
 
-        except Exception as e:
+        except httpx.HTTPError as e:
             logger.error("Unexpected GLEIF error for LEI '%s': %s", lei, e)
             return GLEIFResponse(query=lei, error=f"GLEIF error: {e}")
 
@@ -326,7 +327,7 @@ class GLEIFChecker:
                         else None,
                     )
                 )
-            except Exception as e:
+            except (AttributeError, TypeError, ValueError, ValidationError) as e:
                 logger.warning("Failed to parse GLEIF record: %s", e)
                 continue
 
@@ -343,6 +344,6 @@ class GLEIFChecker:
                 entities=entities,
                 error=data.get("error"),
             )
-        except Exception as e:
+        except (json.JSONDecodeError, AttributeError, TypeError, ValueError, ValidationError) as e:
             logger.warning("GLEIF cache deserialization error: %s", e)
             return GLEIFResponse(query=query, error=f"Cache parse error: {e}")

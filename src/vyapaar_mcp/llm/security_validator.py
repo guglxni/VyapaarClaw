@@ -1,9 +1,10 @@
 """Security LLM Validator for Dual LLM Quarantine Pattern.
 
-Reference: https://archestra.ai/docs/platform-dual-llm
-
 The security LLM validates tool calls WITHOUT access to tainted context.
 It only sees: tool name, parameters, and governance policy.
+
+Uses LiteLLM for provider-agnostic completions so any model
+(OpenAI, Azure, Anthropic, local) can serve as the isolated validator.
 """
 
 from __future__ import annotations
@@ -13,7 +14,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from openai import AsyncOpenAI
+import litellm
+from litellm.exceptions import OpenAIError
 
 from vyapaar_mcp.config import VyapaarConfig
 
@@ -49,28 +51,24 @@ class SecurityLLMClient:
 
     def __init__(self, config: VyapaarConfig) -> None:
         self._config = config
-        self._client: AsyncOpenAI | None = None
 
     @property
     def is_configured(self) -> bool:
         """Check if security LLM is configured."""
-        return bool(self._config.security_llm_url)
+        return bool(self._config.security_llm_model and self._config.security_llm_base_url)
 
     async def initialize(self) -> None:
-        """Initialize the security LLM client."""
+        """Validate configuration and log readiness."""
         if not self.is_configured:
-            logger.warning("Security LLM not configured")
+            logger.warning(
+                "Security LLM not configured — set VYAPAAR_SECURITY_LLM_MODEL "
+                "and VYAPAAR_SECURITY_LLM_BASE_URL"
+            )
             return
-
-        # Support local or remote security LLM
-        base_url = self._config.security_llm_url
-        api_key = self._config.security_llm_key or "not-needed"
-
-        self._client = AsyncOpenAI(
-            base_url=base_url,
-            api_key=api_key,
+        logger.info(
+            "Security LLM client ready: model=%s",
+            self._config.security_llm_model,
         )
-        logger.info("Security LLM client initialized: %s", base_url)
 
     async def validate_tool_call(
         self,
@@ -86,7 +84,7 @@ class SecurityLLMClient:
         Returns:
             Validation result with approve/deny decision
         """
-        if not self._client:
+        if not self.is_configured:
             if self._config.quarantine_strict:
                 return ValidationResult(
                     approved=False,
@@ -94,7 +92,6 @@ class SecurityLLMClient:
                     risk_score=1.0,
                     mitigation="DENY",
                 )
-            # Non-strict: allow but warn
             logger.warning("Security LLM unavailable, allowing tool call (non-strict mode)")
             return ValidationResult(
                 approved=True,
@@ -103,12 +100,11 @@ class SecurityLLMClient:
             )
 
         try:
-            # Build isolated validation prompt (NO conversation context)
             prompt = self._build_validation_prompt(request, governance_policy)
 
-            response = await self._client.chat.completions.create(
-                model=self._config.security_llm_model,
-                messages=[
+            params: dict[str, Any] = {
+                "model": self._config.security_llm_model,
+                "messages": [
                     {
                         "role": "system",
                         "content": (
@@ -122,18 +118,24 @@ class SecurityLLMClient:
                     },
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.1,  # Low variance for deterministic validation
-                max_tokens=500,
-            )
+                "temperature": 0.1,
+                "max_tokens": 500,
+            }
+            if self._config.security_llm_api_key:
+                params["api_key"] = self._config.security_llm_api_key
+            if self._config.security_llm_base_url:
+                params["api_base"] = self._config.security_llm_base_url
 
-            content = response.choices[0].message.content
+            response = await litellm.acompletion(**params)
+
+            content: str | None = None
+            if response.choices:
+                content = getattr(response.choices[0].message, "content", None)
             if not content:
                 raise ValueError("Empty response from security LLM")
 
-            # Parse JSON response
             result = json.loads(content.strip())
 
-            # Log for audit
             if self._config.quarantine_audit_log:
                 logger.info(
                     "Security LLM validation: tool=%s approved=%s risk=%.2f reason=%s",
@@ -150,12 +152,12 @@ class SecurityLLMClient:
                 mitigation=result.get("mitigation"),
             )
 
-        except json.JSONDecodeError as e:
-            logger.error("Failed to parse security LLM response: %s", e)
+        except json.JSONDecodeError as exc:
+            logger.error("Failed to parse security LLM response: %s", exc)
             if self._config.quarantine_strict:
                 return ValidationResult(
                     approved=False,
-                    reason=f"Invalid security LLM response: {e}",
+                    reason=f"Invalid security LLM response: {exc}",
                     risk_score=1.0,
                     mitigation="DENY",
                 )
@@ -164,8 +166,8 @@ class SecurityLLMClient:
                 reason="Validation parsing error (non-strict mode)",
                 risk_score=0.5,
             )
-        except Exception as e:
-            logger.error("Security LLM validation error: %s", e)
+        except (OpenAIError, TypeError, AttributeError, ValueError, RuntimeError) as exc:
+            logger.error("Security LLM validation error: %s", exc)
             if self._config.quarantine_strict:
                 return ValidationResult(
                     approved=False,
@@ -205,10 +207,8 @@ Consider:
 Respond with JSON only."""
 
     async def close(self) -> None:
-        """Close the client connection."""
-        if self._client:
-            await self._client.close()
-            self._client = None
+        """No-op — LiteLLM manages its own HTTP sessions."""
+        pass
 
 
 class ToolCallValidator:

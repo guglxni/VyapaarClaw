@@ -403,6 +403,6 @@ class RazorpayBridge:
                 # Just establishing a session proves the binary works
                 tools = await session.list_tools()
                 return len(tools.tools) > 0
-        except Exception as e:
+        except (OSError, RuntimeError) as e:
             logger.error("Ping failed: %s", e)
             return False

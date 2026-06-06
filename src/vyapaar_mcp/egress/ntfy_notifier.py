@@ -83,7 +83,7 @@ class NtfyNotifier:
         try:
             resp = await self._client.get(f"{self._server_url}/v1/health")
             return resp.status_code == 200
-        except Exception:
+        except httpx.HTTPError:
             return False
 
     # ----------------------------------------------------------------
@@ -135,7 +135,7 @@ class NtfyNotifier:
         except CircuitOpenError:
             logger.error("ntfy circuit OPEN — notification dropped")
             return False
-        except Exception as e:
+        except httpx.HTTPError as e:
             logger.error("ntfy send failed: %s", e)
             return False
 
@@ -285,7 +285,7 @@ async def notify_with_fallback(
                 else:
                     sent = True
             metrics.record_slack_notification(success=sent)
-        except Exception as e:
+        except (httpx.HTTPError, CircuitOpenError, RuntimeError) as e:
             metrics.record_slack_notification(success=False)
             logger.warning("Slack notification failed: %s", e)
             sent = False
@@ -310,7 +310,7 @@ async def notify_with_fallback(
                     sent = True
             if sent:
                 logger.info("Telegram notification sent for %s", result.payout_id)
-        except Exception as e:
+        except (httpx.HTTPError, CircuitOpenError, RuntimeError) as e:
             logger.warning("Telegram notification failed: %s", e)
             sent = False
 
@@ -325,7 +325,7 @@ async def notify_with_fallback(
             if ntfy_sent:
                 sent = True
                 logger.info("ntfy fallback sent for %s", result.payout_id)
-        except Exception as e:
+        except (httpx.HTTPError, CircuitOpenError, RuntimeError) as e:
             logger.error("ntfy fallback also failed: %s", e)
 
     if not sent:

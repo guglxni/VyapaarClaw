@@ -21,6 +21,7 @@ Architecture:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from typing import Any
@@ -38,6 +39,10 @@ MAX_POLL_INTERVAL = 300
 MAX_PAYOUTS_PER_PAGE = 100
 ERROR_BACKOFF_BASE = 5.0
 ERROR_BACKOFF_MAX = 120.0
+
+POLL_RUNTIME_ERRORS = (RuntimeError, ConnectionError, OSError, json.JSONDecodeError)
+PAYOUT_RECORD_ERRORS = (AttributeError, KeyError, TypeError, ValueError)
+CALLBACK_RUNTIME_ERRORS = (RuntimeError, ConnectionError, OSError, ValueError, TypeError)
 
 
 class PayoutPoller:
@@ -166,7 +171,7 @@ class PayoutPoller:
         try:
             raw_payouts = await self.fetch_all_queued_payouts()
             self._error_count = 0  # Reset on success
-        except Exception as e:
+        except POLL_RUNTIME_ERRORS as e:
             self._error_count += 1
             logger.error(
                 "Razorpay API poll error (attempt %d): %s",
@@ -183,28 +188,44 @@ class PayoutPoller:
         new_payouts: list[tuple[PayoutEntity, str, str | None]] = []
 
         for raw in raw_payouts:
-            payout_id = raw.get("id", "")
-            idempotency_key = f"poll:payout.queued:{payout_id}"
+            payout_id = ""
+            try:
+                payout_id = raw.get("id", "")
+                idempotency_key = f"poll:payout.queued:{payout_id}"
 
-            # Check if already processed (same Redis layer as webhooks)
-            is_new = await self._redis.check_idempotency(idempotency_key)
-            if not is_new:
-                logger.debug(
-                    "Skipping already-processed payout: %s",
-                    payout_id,
+                # Check if already processed (same Redis layer as webhooks)
+                is_new = await self._redis.check_idempotency(idempotency_key)
+                if not is_new:
+                    logger.debug(
+                        "Skipping already-processed payout: %s",
+                        payout_id,
+                    )
+                    continue
+
+                # Convert
+                payout = self.convert_to_payout_entity(raw)
+
+                # Extract agent_id and vendor_url from notes
+                notes = raw.get("notes", {})
+                agent_id = notes.get("agent_id", "unknown")
+                vendor_url = notes.get("vendor_url") or None
+
+                new_payouts.append((payout, agent_id, vendor_url))
+                self._total_processed += 1
+            except PAYOUT_RECORD_ERRORS as e:
+                logger.error(
+                    "Skipping malformed payout record %s: %s",
+                    payout_id or "<missing id>",
+                    e,
                 )
-                continue
-
-            # Convert
-            payout = self.convert_to_payout_entity(raw)
-
-            # Extract agent_id and vendor_url from notes
-            notes = raw.get("notes", {})
-            agent_id = notes.get("agent_id", "unknown")
-            vendor_url = notes.get("vendor_url") or None
-
-            new_payouts.append((payout, agent_id, vendor_url))
-            self._total_processed += 1
+            except POLL_RUNTIME_ERRORS as e:
+                self._error_count += 1
+                logger.error(
+                    "Payout processing error for %s (attempt %d): %s",
+                    payout_id or "<missing id>",
+                    self._error_count,
+                    e,
+                )
 
         if new_payouts:
             logger.info(
@@ -239,14 +260,14 @@ class PayoutPoller:
                     for payout, agent_id, vendor_url in new_payouts:
                         try:
                             await on_payout(payout, agent_id, vendor_url)
-                        except Exception as e:
+                        except CALLBACK_RUNTIME_ERRORS as e:
                             logger.error(
                                 "Payout callback error for %s: %s",
                                 payout.id,
                                 e,
                             )
 
-            except Exception as e:
+            except POLL_RUNTIME_ERRORS as e:
                 logger.error("Poll loop error: %s", e)
 
             # Wait with backoff

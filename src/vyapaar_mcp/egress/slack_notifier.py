@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 import time
 from typing import Any
@@ -210,7 +211,7 @@ class SlackNotifier:
         except httpx.TimeoutException:
             logger.error("Slack API timeout")
             return False
-        except Exception as e:
+        except (httpx.HTTPError, json.JSONDecodeError) as e:
             logger.error("Slack notification failed: %s", e)
             return False
 
@@ -220,7 +221,7 @@ class SlackNotifier:
             response = await self._http.post("/auth.test")
             data = response.json()
             return bool(data.get("ok"))
-        except Exception:
+        except (httpx.HTTPError, json.JSONDecodeError):
             return False
 
     async def update_approval_message(
@@ -262,7 +263,7 @@ class SlackNotifier:
             )
             data = response.json()
             return bool(data.get("ok"))
-        except Exception as e:
+        except (httpx.HTTPError, json.JSONDecodeError) as e:
             logger.error("Failed to update Slack message: %s", e)
             return False
 
@@ -487,7 +488,7 @@ async def notify_slack(
                     vendor_url=vendor_url,
                 )
                 metrics.record_slack_notification(success=success)
-    except Exception as e:
+    except httpx.HTTPError as e:
         # Slack failures should never block the governance pipeline
         metrics.record_slack_notification(success=False)
         logger.error("Slack notification error (non-fatal): %s", e)

@@ -24,6 +24,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
+import redis
 
 from vyapaar_mcp.db.redis_client import RedisClient
 
@@ -186,7 +187,7 @@ class TransactionAnomalyScorer:
                 features,
             )
             return score_result
-        except Exception as e:
+        except (ValueError, TypeError, RuntimeError) as e:
             logger.error("Anomaly scoring failed for agent %s: %s", agent_id, e)
             return AnomalyScore(
                 risk_score=0.5,
@@ -375,7 +376,7 @@ class TransactionAnomalyScorer:
             await self._redis._client.lpush(key, entry)
             await self._redis._client.ltrim(key, 0, _MAX_HISTORY_SIZE - 1)
             await self._redis._client.expire(key, _HISTORY_TTL)
-        except Exception as e:
+        except (redis.exceptions.RedisError, ConnectionError, TimeoutError) as e:
             logger.warning("Failed to record transaction history: %s", e)
 
     async def _get_history(self, agent_id: str) -> list[dict[str, float]]:
@@ -400,6 +401,6 @@ class TransactionAnomalyScorer:
                 except (json.JSONDecodeError, KeyError, TypeError):
                     continue
             return entries
-        except Exception as e:
+        except (redis.exceptions.RedisError, ConnectionError, TimeoutError) as e:
             logger.warning("Failed to read transaction history: %s", e)
             return []

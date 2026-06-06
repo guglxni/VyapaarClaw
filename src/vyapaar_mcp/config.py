@@ -2,13 +2,14 @@
 
 All config is loaded from environment variables with the VYAPAAR_ prefix.
 Secrets MUST be provided via env vars (never hardcoded).
-In production on Archestra, secrets are injected via Vault/K8s Secrets.
+In production, secrets are injected via Vault/K8s Secrets.
 """
 
 from __future__ import annotations
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing_extensions import Self
 
 
 class VyapaarConfig(BaseSettings):
@@ -155,24 +156,52 @@ class VyapaarConfig(BaseSettings):
     )
 
     # ============================================
-    # Azure AI Services — Kimi K2.5 Configuration
+    # Generic LLM Configuration (LiteLLM)
     # ============================================
-    # Uses Azure AI Services (Models API) endpoint to access
-    # Kimi K2.5 for agent intelligence and governance copilot.
-    # Endpoint format: https://<resource>.services.ai.azure.com/models
+    # Any provider via LiteLLM: azure/xxx, openai/xxx, anthropic/xxx,
+    # gemini/xxx, groq/xxx, ollama/xxx, etc.
+    llm_model: str = Field(
+        default="",
+        description="LiteLLM model identifier (e.g. 'azure/kimi-k2.5', 'gpt-4o', 'anthropic/claude-3-opus')",
+    )
+    llm_api_key: str = Field(
+        default="",
+        description="API key for the LLM provider",
+    )
+    llm_base_url: str = Field(
+        default="",
+        description="Base URL / API endpoint override (optional, e.g. for Azure or local models)",
+    )
+    llm_api_version: str = Field(
+        default="",
+        description="API version for provider-specific endpoints (e.g. Azure)",
+    )
+    llm_temperature: float = Field(
+        default=0.7,
+        description="Default sampling temperature for chat completions",
+    )
+    llm_max_tokens: int = Field(
+        default=2000,
+        description="Default max tokens for chat completions",
+    )
 
-    # --- Azure AI / Kimi K2.5 ---
+    # ============================================
+    # Legacy Azure AI Services — backward compat
+    # ============================================
+    # DEPRECATED: Prefer llm_model / llm_api_key / llm_base_url above.
+    # These fields are auto-mapped by _migrate_legacy_llm_config.
+
     azure_openai_endpoint: str = Field(
         default="https://vyapaar.services.ai.azure.com/models",
-        description="Azure AI Services endpoint for model inference",
+        description="DEPRECATED: use VYAPAAR_LLM_BASE_URL. Azure AI Services endpoint.",
     )
     azure_openai_api_key: str = Field(
         default="",
-        description="Azure AI API key from Azure Portal > Keys and Endpoint",
+        description="DEPRECATED: use VYAPAAR_LLM_API_KEY. Azure AI API key.",
     )
     azure_openai_deployment: str = Field(
         default="kimi-k2.5",
-        description="Model ID / deployment name (e.g., kimi-k2.5)",
+        description="DEPRECATED: use VYAPAAR_LLM_MODEL. Azure model deployment name.",
     )
     azure_foundry_project_id: str = Field(
         default="",
@@ -180,33 +209,28 @@ class VyapaarConfig(BaseSettings):
     )
     azure_openai_api_version: str = Field(
         default="2024-05-01-preview",
-        description="Azure AI Services API version",
+        description="DEPRECATED: use VYAPAAR_LLM_API_VERSION. Azure AI Services API version.",
     )
 
-    # --- Archestra Security Proxy (Deterministic Controls) ---
-    # Archestra sits as a proxy between your agent and MCP servers/LLM
+    # --- Security Proxy (Deterministic Controls) ---
+    # A security proxy sits between your agent and MCP servers/LLM
     # to enforce deterministic access policies instead of probabilistic guardrails.
-    #
-    # NOTE: For self-hosted Archestra, no external API key is needed.
-    # The proxy runs locally and enforces policies via its own gateway.
-    # The ARCHESTRA_TEAM_TOKEN in deploy/archestra.yaml is for gateway auth
-    # (generated locally via: archestra token generate --team <team-id>)
-    archestra_enabled: bool = Field(
+    security_proxy_enabled: bool = Field(
         default=False,
-        description="Enable Archestra proxy layer for deterministic security controls",
+        description="Enable security proxy layer for deterministic security controls",
     )
-    archestra_url: str = Field(
+    security_proxy_url: str = Field(
         default="http://localhost:9000",
-        description="Archestra URL for self-hosted instance (local proxy endpoint)",
+        description="Security proxy URL for local proxy endpoint",
     )
-    archestra_policy_set_id: str = Field(
+    policy_set_id: str = Field(
         default="",
-        description="Archestra policy set ID defining allow/deny rules",
+        description="Policy set ID defining allow/deny rules",
     )
 
     # --- Azure Foundry Guardrails (Probabilistic - Use with caution) ---
     # Note: Azure's probabilistic guardrails can be bypassed.
-    # We recommend Archestra's deterministic controls for production.
+    # We recommend deterministic controls for production.
     azure_guardrails_enabled: bool = Field(
         default=False,
         description="Enable Azure guardrails (jailbreak, prompt injection)",
@@ -219,7 +243,7 @@ class VyapaarConfig(BaseSettings):
     # ============================================
     # Dual LLM Quarantine Pattern (Security Layer)
     # ============================================
-    # Reference: https://archestra.ai/docs/platform-dual-llm
+    # Reference: Dual LLM Quarantine Pattern
     #
     # The Dual LLM pattern defends against the "lethal trifecta":
     # - Indirect prompt injection via untrusted tool outputs
@@ -238,18 +262,28 @@ class VyapaarConfig(BaseSettings):
         description="Tools requiring security LLM validation when context is tainted",
     )
 
-    # --- Security LLM Configuration ---
+    # --- Security LLM Configuration (Generic) ---
+    security_llm_model: str = Field(
+        default="openai/gpt-4o-mini",
+        description="Security validation LLM model identifier (LiteLLM format)",
+    )
+    security_llm_api_key: str = Field(
+        default="",
+        description="API key for security LLM",
+    )
+    security_llm_base_url: str = Field(
+        default="",
+        description="Base URL for security LLM",
+    )
+
+    # Legacy aliases (auto-mapped by _migrate_legacy_llm_config)
     security_llm_url: str = Field(
         default="http://localhost:9001/v1",
-        description="Endpoint for isolated security validation LLM (no context access)",
+        description="DEPRECATED: use VYAPAAR_SECURITY_LLM_BASE_URL. Security LLM endpoint.",
     )
     security_llm_key: str = Field(
         default="",
-        description="API key for security LLM (if required by local deployment)",
-    )
-    security_llm_model: str = Field(
-        default="gpt-4o-mini",
-        description="Security LLM model (e.g., gpt-4o-mini for cost-effective validation)",
+        description="DEPRECATED: use VYAPAAR_SECURITY_LLM_API_KEY. Security LLM API key.",
     )
     dual_llm_max_rounds: int = Field(
         default=5,
@@ -266,6 +300,35 @@ class VyapaarConfig(BaseSettings):
         description="Log all security LLM validation decisions for audit",
     )
 
+
+    @model_validator(mode="after")
+    def _migrate_legacy_llm_config(self) -> Self:
+        """Auto-map legacy Azure OpenAI / dual-LLM fields to generic keys."""
+        # --- Primary LLM migration ---
+        if not self.llm_model and self.azure_openai_deployment:
+            self.llm_model = f"azure/{self.azure_openai_deployment}"
+        if not self.llm_api_key and self.azure_openai_api_key:
+            self.llm_api_key = self.azure_openai_api_key
+        if not self.llm_base_url and self.azure_openai_endpoint:
+            self.llm_base_url = self.azure_openai_endpoint
+        if not self.llm_api_version and self.azure_openai_api_version:
+            self.llm_api_version = self.azure_openai_api_version
+
+        # --- Security LLM migration ---
+        if not self.security_llm_model:
+            self.security_llm_model = "openai/gpt-4o-mini"
+        elif "/" not in self.security_llm_model:
+            # Old plain model names (e.g. "gpt-4o-mini") default to openai provider
+            self.security_llm_model = f"openai/{self.security_llm_model}"
+        if not self.security_llm_api_key and self.security_llm_key:
+            self.security_llm_api_key = self.security_llm_key
+        if not self.security_llm_base_url and self.security_llm_url:
+            default_url = "http://localhost:9001/v1"
+            if self.security_llm_url != default_url:
+                self.security_llm_base_url = self.security_llm_url
+            else:
+                self.security_llm_base_url = default_url
+        return self
 
 def load_config() -> VyapaarConfig:
     """Load and validate configuration from environment."""

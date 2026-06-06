@@ -42,10 +42,8 @@ def config() -> VyapaarConfig:
         razorpay_webhook_secret="test_webhook_secret",
         google_safe_browsing_key="test_gsb_key_12345",
         redis_url=os.environ.get("VYAPAAR_REDIS_URL", "redis://localhost:6379/0"),
-        postgres_dsn=os.environ.get(
-            "VYAPAAR_POSTGRES_DSN",
-            "postgresql://vyapaar:testpass@localhost:5432/vyapaar_test",
-        ),
+        # Hardcode test DSN to avoid .env pollution during full suite runs.
+        postgres_dsn="postgresql://vyapaar:testpass@localhost:5432/vyapaar_test",
     )
 
 

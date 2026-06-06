@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """VyapaarClaw — Agentic Financial Governance Server."""
 
 # Internal prototype identifier — not for public display.

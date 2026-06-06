@@ -53,7 +53,7 @@ class TelegramNotifier:
             resp = await self._http.get(f"{self._base_url}/getMe")
             data = resp.json()
             return bool(data.get("ok"))
-        except Exception:
+        except (httpx.HTTPError, json.JSONDecodeError):
             return False
 
     # ================================================================
@@ -163,7 +163,7 @@ class TelegramNotifier:
                 },
             )
             return resp.json().get("ok", False)
-        except Exception as e:
+        except (httpx.HTTPError, json.JSONDecodeError) as e:
             logger.error("Telegram answerCallbackQuery failed: %s", e)
             return False
 
@@ -195,7 +195,7 @@ class TelegramNotifier:
                 },
             )
             return resp.json().get("ok", False)
-        except Exception as e:
+        except (httpx.HTTPError, json.JSONDecodeError) as e:
             logger.error("Telegram editMessageText failed: %s", e)
             return False
 
@@ -240,7 +240,7 @@ class TelegramNotifier:
         except httpx.TimeoutException:
             logger.error("Telegram API timeout")
             return False
-        except Exception as e:
+        except (httpx.HTTPError, json.JSONDecodeError) as e:
             logger.error("Telegram notification failed: %s", e)
             return False
 

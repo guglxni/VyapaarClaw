@@ -18,6 +18,7 @@ import logging
 from typing import Any
 
 import httpx
+import redis
 
 from vyapaar_mcp.db.redis_client import RedisClient
 from vyapaar_mcp.models import SafeBrowsingResponse
@@ -73,10 +74,23 @@ class SafeBrowsingChecker:
         """
         # Check cache first
         if self._redis:
-            cached = await self._redis.get_cached_reputation(url)
-            if cached is not None:
-                logger.debug("Cache hit for URL: %s", url)
-                return SafeBrowsingResponse(**cached)
+            try:
+                cached = await self._redis.get_cached_reputation(url)
+            except (redis.exceptions.RedisError, RuntimeError, ValueError, TypeError) as e:
+                logger.warning("Safe Browsing cache read failed for URL: %s — %s", url, e)
+            else:
+                if cached is not None:
+                    try:
+                        result = SafeBrowsingResponse(**cached)
+                    except (ValueError, TypeError) as e:
+                        logger.warning(
+                            "Safe Browsing cache payload invalid for URL: %s — %s",
+                            url,
+                            e,
+                        )
+                    else:
+                        logger.debug("Cache hit for URL: %s", url)
+                        return result
 
         # Build request payload per Google API spec
         request_body: dict[str, Any] = {
@@ -106,11 +120,14 @@ class SafeBrowsingChecker:
 
             # Cache the result
             if self._redis:
-                await self._redis.cache_reputation(
-                    url,
-                    result.model_dump(),
-                    ttl=300,  # 5 minutes
-                )
+                try:
+                    await self._redis.cache_reputation(
+                        url,
+                        result.model_dump(),
+                        ttl=300,  # 5 minutes
+                    )
+                except (redis.exceptions.RedisError, RuntimeError, TypeError) as e:
+                    logger.warning("Safe Browsing cache write failed for URL: %s — %s", url, e)
 
             if result.is_safe:
                 logger.info("URL is SAFE: %s", url)
@@ -172,7 +189,14 @@ class SafeBrowsingChecker:
                 ]
             )
 
-        except Exception as e:
+        except (
+            httpx.HTTPError,
+            ConnectionError,
+            TimeoutError,
+            ValueError,
+            TypeError,
+            RuntimeError,
+        ) as e:
             logger.error("Unexpected Safe Browsing error for URL: %s — %s", url, e)
             return SafeBrowsingResponse(
                 matches=[

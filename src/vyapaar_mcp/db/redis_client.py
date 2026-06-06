@@ -52,7 +52,7 @@ class RedisClient:
         """Check if Redis is reachable."""
         try:
             return bool(await self.client.ping())
-        except Exception:
+        except (redis.exceptions.RedisError, RuntimeError, ConnectionError, TimeoutError):
             return False
 
     # ================================================================
@@ -259,7 +259,7 @@ return {1, current + 1, window}
     async def cache_reputation(self, url: str, result: dict[str, Any], ttl: int = 300) -> None:
         """Cache Safe Browsing result (default 5 min TTL)."""
         key = self._reputation_key(url)
-        await self.client.setex(key, ttl, json.dumps(result))
+        await self.client.set(key, json.dumps(result), ex=ttl)
 
     # ================================================================
     # Spending Trends & Forecasting (VyapaarClaw v2)

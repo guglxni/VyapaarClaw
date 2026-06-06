@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """VyapaarClaw Terminal UI — governance dashboard in your terminal."""
 
 from vyapaar_mcp.tui.app import VyapaarClawTUI

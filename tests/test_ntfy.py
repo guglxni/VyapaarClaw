@@ -302,6 +302,22 @@ class TestNotifyWithFallback:
         await slack.close()
         await ntfy.close()
 
+    async def test_slack_runtime_error_ntfy_fallback(self) -> None:
+        """Runtime failures from notifier wrappers should still fall back."""
+        ntfy_reqs: list[httpx.Request] = []
+
+        class FailingSlack:
+            async def request_approval(self, *args, **kwargs) -> bool:
+                raise RuntimeError("slack circuit failed")
+
+        ntfy = _make_ntfy(_ok_ntfy_handler(ntfy_reqs), topic="test")
+
+        result = make_result(decision=Decision.HELD, reason_code=ReasonCode.APPROVAL_REQUIRED)
+        await notify_with_fallback(FailingSlack(), ntfy, result)
+
+        assert len(ntfy_reqs) == 1
+        await ntfy.close()
+
     async def test_no_slack_ntfy_only(self) -> None:
         """When Slack is None, ntfy should be used directly."""
         ntfy_reqs: list[httpx.Request] = []

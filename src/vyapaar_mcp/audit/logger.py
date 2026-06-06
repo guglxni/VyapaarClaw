@@ -6,6 +6,7 @@ If PostgreSQL is unreachable, falls back to local filesystem
 
 from __future__ import annotations
 
+import asyncpg
 import json
 import logging
 import os
@@ -41,7 +42,7 @@ async def log_decision(
             vendor_name=vendor_name,
             vendor_url=vendor_url,
         )
-    except Exception as e:
+    except (asyncpg.PostgresError, RuntimeError, ConnectionError, TimeoutError, OSError) as e:
         logger.error("PostgreSQL audit write failed: %s — falling back to filesystem", e)
         _write_fallback(result, vendor_name, vendor_url)
 

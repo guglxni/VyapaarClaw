@@ -51,7 +51,7 @@ class PostgresClient:
             async with self.pool.acquire() as conn:
                 await conn.fetchval("SELECT 1")
             return True
-        except Exception:
+        except (asyncpg.PostgresError, RuntimeError, ConnectionError, TimeoutError):
             return False
 
     # ================================================================

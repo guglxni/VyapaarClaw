@@ -62,7 +62,8 @@ def configure_logging(
     """
     # Get configuration from environment
     level = level or os.environ.get("VYAPAAR_LOG_LEVEL", "INFO")
-    json_format = json_format or os.environ.get("VYAPAAR_LOG_FORMAT", "") == "json"
+    if json_format is None:
+        json_format = os.environ.get("VYAPAAR_LOG_FORMAT", "") == "json"
 
     # Get root logger
     root_logger = logging.getLogger()
@@ -112,7 +113,7 @@ def get_structured_logger(
     logger = logging.getLogger(name)
     if extra:
         # Create a bound logger with extra context
-        return logging.LoggerAdapter(logger, extra)
+        return logging.LoggerAdapter(logger, {"extra_fields": extra})
     return logger
 
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """VyapaarClaw CFO Intelligence Layer — expanded AI CFO capabilities.
 
 Modules:

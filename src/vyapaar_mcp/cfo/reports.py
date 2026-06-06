@@ -7,7 +7,6 @@ Uses FPDF2 for lightweight PDF generation — no external services needed.
 from __future__ import annotations
 
 import datetime as _dt
-import io
 import os
 from typing import Any
 
@@ -24,10 +23,24 @@ class ComplianceReport(FPDF):
     def header(self) -> None:
         self.set_font("Helvetica", "B", 14)
         self.set_text_color(31, 41, 55)
-        self.cell(0, 10, "VyapaarClaw — Financial Governance Report", align="C", new_x="LMARGIN", new_y="NEXT")
+        self.cell(
+            0,
+            10,
+            "VyapaarClaw - Financial Governance Report",
+            align="C",
+            new_x="LMARGIN",
+            new_y="NEXT",
+        )
         self.set_font("Helvetica", "", 9)
         self.set_text_color(107, 114, 128)
-        self.cell(0, 6, f"Generated: {_dt.datetime.now().strftime('%Y-%m-%d %H:%M UTC')}", align="C", new_x="LMARGIN", new_y="NEXT")
+        self.cell(
+            0,
+            6,
+            f"Generated: {_dt.datetime.now().strftime('%Y-%m-%d %H:%M UTC')}",
+            align="C",
+            new_x="LMARGIN",
+            new_y="NEXT",
+        )
         self.ln(5)
         # Divider line
         self.set_draw_color(79, 70, 229)
@@ -55,7 +68,12 @@ class ComplianceReport(FPDF):
         self.set_text_color(31, 41, 55)
         self.cell(0, 7, str(value), new_x="LMARGIN", new_y="NEXT")
 
-    def add_table(self, headers: list[str], rows: list[list[str]], col_widths: list[int] | None = None) -> None:
+    def add_table(
+        self,
+        headers: list[str],
+        rows: list[list[str]],
+        col_widths: list[int] | None = None,
+    ) -> None:
         widths = col_widths or [int(190 / len(headers))] * len(headers)
 
         # Header row
@@ -110,9 +128,9 @@ def generate_governance_report(
     # 1. Executive Summary
     pdf.section_title("1. Executive Summary")
     budget = summary.get("budget_summary", {})
-    pdf.key_value("Total Budget (INR)", f"₹{budget.get('total_budget_paise', 0) / 100:,.2f}")
-    pdf.key_value("Budget Utilized", f"₹{budget.get('utilized_paise', 0) / 100:,.2f}")
-    pdf.key_value("Budget Remaining", f"₹{budget.get('remaining_paise', 0) / 100:,.2f}")
+    pdf.key_value("Total Budget (INR)", f"INR {budget.get('total_budget_paise', 0) / 100:,.2f}")
+    pdf.key_value("Budget Utilized", f"INR {budget.get('utilized_paise', 0) / 100:,.2f}")
+    pdf.key_value("Budget Remaining", f"INR {budget.get('remaining_paise', 0) / 100:,.2f}")
     utilization = budget.get("utilization_percent", 0)
     pdf.key_value("Utilization", f"{utilization}%")
     pdf.ln(3)
@@ -143,7 +161,7 @@ def generate_governance_report(
             [
                 txn.get("date", ""),
                 txn.get("vendor", "")[:20],
-                f"₹{txn.get('amount_paise', 0) / 100:,.2f}",
+                f"INR {txn.get('amount_paise', 0) / 100:,.2f}",
                 txn.get("category", "misc"),
                 txn.get("status", ""),
             ]
@@ -157,7 +175,10 @@ def generate_governance_report(
         pdf.section_title("4. GST Compliance Status")
         pdf.key_value("GSTINs Validated", str(gst.get("validated", 0)))
         pdf.key_value("Invalid GSTINs", str(gst.get("invalid", 0)))
-        pdf.key_value("Total GST Collected (INR)", f"₹{gst.get('total_gst_paise', 0) / 100:,.2f}")
+        pdf.key_value(
+            "Total GST Collected (INR)",
+            f"INR {gst.get('total_gst_paise', 0) / 100:,.2f}",
+        )
         pdf.ln(5)
 
     # 5. Fraud Detection

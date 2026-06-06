@@ -13,6 +13,7 @@ import contextlib
 import os
 from typing import ClassVar
 
+import httpx
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -96,8 +97,6 @@ class VyapaarClawTUI(App):
         """Load governance data from the MCP server or show demo data."""
         mcp_url = os.environ.get("VYAPAAR_MCP_URL", "http://localhost:8000")
         try:
-            import httpx
-
             async with httpx.AsyncClient(timeout=3.0) as client:
                 resp = await client.get(f"{mcp_url}/health")
                 if resp.status_code == 200:
@@ -112,11 +111,11 @@ class VyapaarClawTUI(App):
                 else:
                     self._show_offline_state()
                     return
-        except Exception:
+        except (httpx.HTTPError, ValueError):
             self._show_offline_state()
             return
 
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(httpx.HTTPError, ValueError):
             async with httpx.AsyncClient(timeout=5.0) as client:
                 agents_resp = await client.get(f"{mcp_url}/api/agents")
                 if agents_resp.status_code == 200:

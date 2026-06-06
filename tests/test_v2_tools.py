@@ -179,12 +179,12 @@ class TestForecastCashFlow:
         """Forecast for an agent with spend history."""
         from vyapaar_mcp import server
 
-        orig_redis = server._redis
-        orig_postgres = server._postgres
+        orig_redis = server.state.redis
+        orig_postgres = server.state.postgres
 
         try:
-            server._redis = fake_redis
-            server._postgres = real_postgres
+            server.state.redis = fake_redis
+            server.state.postgres = real_postgres
 
             await fake_redis.check_budget_atomic("test-agent-001", 50000, 500000)
 
@@ -197,19 +197,19 @@ class TestForecastCashFlow:
             assert fc["budget_health"] in ("green", "yellow", "red")
             assert "burn_rate_per_day" in fc
         finally:
-            server._redis = orig_redis
-            server._postgres = orig_postgres
+            server.state.redis = orig_redis
+            server.state.postgres = orig_postgres
 
     async def test_no_agents(self, fake_redis: RedisClient, real_postgres: PostgresClient) -> None:
         """Forecast with no agents returns empty list."""
         from vyapaar_mcp import server
 
-        orig_redis = server._redis
-        orig_postgres = server._postgres
+        orig_redis = server.state.redis
+        orig_postgres = server.state.postgres
 
         try:
-            server._redis = fake_redis
-            server._postgres = real_postgres
+            server.state.redis = fake_redis
+            server.state.postgres = real_postgres
 
             async with real_postgres.pool.acquire() as conn:
                 await conn.execute("DELETE FROM agent_policies")
@@ -217,8 +217,8 @@ class TestForecastCashFlow:
             result = await server.forecast_cash_flow(agent_id="", horizon_days=7)
             assert result["forecasts"] == []
         finally:
-            server._redis = orig_redis
-            server._postgres = orig_postgres
+            server.state.redis = orig_redis
+            server.state.postgres = orig_postgres
 
     async def test_inactive_agent(
         self, fake_redis: RedisClient, real_postgres: PostgresClient
@@ -226,20 +226,20 @@ class TestForecastCashFlow:
         """Agent with zero spend should show 'inactive' trend."""
         from vyapaar_mcp import server
 
-        orig_redis = server._redis
-        orig_postgres = server._postgres
+        orig_redis = server.state.redis
+        orig_postgres = server.state.postgres
 
         try:
-            server._redis = fake_redis
-            server._postgres = real_postgres
+            server.state.redis = fake_redis
+            server.state.postgres = real_postgres
 
             result = await server.forecast_cash_flow(agent_id="ghost-agent", horizon_days=7)
             fc = result["forecasts"][0]
             assert fc["trend"] == "inactive"
             assert fc["budget_health"] == "green"
         finally:
-            server._redis = orig_redis
-            server._postgres = orig_postgres
+            server.state.redis = orig_redis
+            server.state.postgres = orig_postgres
 
 
 # ================================================================
@@ -255,10 +255,10 @@ class TestGenerateComplianceReport:
         """Report with real audit data returns correct structure and calculations."""
         from vyapaar_mcp import server
 
-        orig_postgres = server._postgres
+        orig_postgres = server.state.postgres
 
         try:
-            server._postgres = real_postgres
+            server.state.postgres = real_postgres
 
             for i in range(10):
                 await real_postgres.write_audit_log(
@@ -312,22 +312,22 @@ class TestGenerateComplianceReport:
             assert len(result["high_risk_agents"]) == 1
             assert result["high_risk_agents"][0]["agent_id"] == "agent-A"
         finally:
-            server._postgres = orig_postgres
+            server.state.postgres = orig_postgres
 
     async def test_empty_period(self, real_postgres: PostgresClient) -> None:
         """Report with zero decisions should return clean defaults."""
         from vyapaar_mcp import server
 
-        orig_postgres = server._postgres
+        orig_postgres = server.state.postgres
 
         try:
-            server._postgres = real_postgres
+            server.state.postgres = real_postgres
 
             result = await server.generate_compliance_report(period_days=7)
             assert result["summary"]["total_decisions"] == 0
             assert result["summary"]["approval_rate_pct"] == 0
         finally:
-            server._postgres = orig_postgres
+            server.state.postgres = orig_postgres
 
 
 # ================================================================
@@ -343,10 +343,10 @@ class TestGetSpendingTrends:
         """Trends with spend data returns correct summary."""
         from vyapaar_mcp import server
 
-        orig_redis = server._redis
+        orig_redis = server.state.redis
 
         try:
-            server._redis = fake_redis
+            server.state.redis = fake_redis
             await fake_redis.check_budget_atomic("agent-trend", 30000, 500000)
 
             result = await server.get_spending_trends(agent_id="agent-trend", days=7)
@@ -356,21 +356,21 @@ class TestGetSpendingTrends:
             assert result["summary"]["total_spend_paise"] >= 30000
             assert result["summary"]["active_days"] >= 1
         finally:
-            server._redis = orig_redis
+            server.state.redis = orig_redis
 
     async def test_caps_at_90_days(self, fake_redis: RedisClient) -> None:
         """Days parameter should be capped at 90."""
         from vyapaar_mcp import server
 
-        orig_redis = server._redis
+        orig_redis = server.state.redis
 
         try:
-            server._redis = fake_redis
+            server.state.redis = fake_redis
             result = await server.get_spending_trends(agent_id="agent-cap", days=200)
             assert result["days_requested"] == 90
             assert len(result["daily_spend"]) == 90
         finally:
-            server._redis = orig_redis
+            server.state.redis = orig_redis
 
 
 # ================================================================
@@ -388,12 +388,12 @@ class TestListAgents:
         """Agents list enriches policies with real-time budget data."""
         from vyapaar_mcp import server
 
-        orig_redis = server._redis
-        orig_postgres = server._postgres
+        orig_redis = server.state.redis
+        orig_postgres = server.state.postgres
 
         try:
-            server._redis = fake_redis
-            server._postgres = real_postgres
+            server.state.redis = fake_redis
+            server.state.postgres = real_postgres
 
             await real_postgres.upsert_agent_policy(
                 AgentPolicy(
@@ -414,8 +414,8 @@ class TestListAgents:
             assert agent["utilisation_pct"] == 50.0
             assert agent["budget_health"] == "green"
         finally:
-            server._redis = orig_redis
-            server._postgres = orig_postgres
+            server.state.redis = orig_redis
+            server.state.postgres = orig_postgres
 
     async def test_empty_agents(
         self, fake_redis: RedisClient, real_postgres: PostgresClient
@@ -423,12 +423,12 @@ class TestListAgents:
         """Empty agent list when no policies exist."""
         from vyapaar_mcp import server
 
-        orig_redis = server._redis
-        orig_postgres = server._postgres
+        orig_redis = server.state.redis
+        orig_postgres = server.state.postgres
 
         try:
-            server._redis = fake_redis
-            server._postgres = real_postgres
+            server.state.redis = fake_redis
+            server.state.postgres = real_postgres
 
             async with real_postgres.pool.acquire() as conn:
                 await conn.execute("DELETE FROM agent_policies")
@@ -437,8 +437,8 @@ class TestListAgents:
             assert result["total_agents"] == 0
             assert result["agents"] == []
         finally:
-            server._redis = orig_redis
-            server._postgres = orig_postgres
+            server.state.redis = orig_redis
+            server.state.postgres = orig_postgres
 
 
 # ================================================================
@@ -459,14 +459,14 @@ class TestEvaluatePayout:
         """Payout within policy limits is APPROVED by the real engine."""
         from vyapaar_mcp import server
 
-        orig_redis = server._redis
-        orig_postgres = server._postgres
-        orig_governance = server._governance
+        orig_redis = server.state.redis
+        orig_postgres = server.state.postgres
+        orig_governance = server.state.governance
 
         try:
-            server._redis = fake_redis
-            server._postgres = real_postgres
-            server._governance = GovernanceEngine(
+            server.state.redis = fake_redis
+            server.state.postgres = real_postgres
+            server.state.governance = GovernanceEngine(
                 redis=fake_redis,
                 postgres=real_postgres,
                 safe_browsing=safe_browsing_safe,
@@ -487,9 +487,9 @@ class TestEvaluatePayout:
             assert result["agent_id"] == "test-agent-001"
             assert "processing_ms" in result
         finally:
-            server._redis = orig_redis
-            server._postgres = orig_postgres
-            server._governance = orig_governance
+            server.state.redis = orig_redis
+            server.state.postgres = orig_postgres
+            server.state.governance = orig_governance
 
     async def test_rejected_payout(
         self,
@@ -500,13 +500,13 @@ class TestEvaluatePayout:
         """Payout exceeding daily budget limit is REJECTED by the real engine."""
         from vyapaar_mcp import server
 
-        orig_redis = server._redis
-        orig_postgres = server._postgres
-        orig_governance = server._governance
+        orig_redis = server.state.redis
+        orig_postgres = server.state.postgres
+        orig_governance = server.state.governance
 
         try:
-            server._redis = fake_redis
-            server._postgres = real_postgres
+            server.state.redis = fake_redis
+            server.state.postgres = real_postgres
 
             await real_postgres.upsert_agent_policy(
                 AgentPolicy(
@@ -515,7 +515,7 @@ class TestEvaluatePayout:
                 )
             )
 
-            server._governance = GovernanceEngine(
+            server.state.governance = GovernanceEngine(
                 redis=fake_redis,
                 postgres=real_postgres,
                 safe_browsing=safe_browsing_safe,
@@ -531,6 +531,6 @@ class TestEvaluatePayout:
             assert result["decision"] == "REJECTED"
             assert result["reason_code"] == "LIMIT_EXCEEDED"
         finally:
-            server._redis = orig_redis
-            server._postgres = orig_postgres
-            server._governance = orig_governance
+            server.state.redis = orig_redis
+            server.state.postgres = orig_postgres
+            server.state.governance = orig_governance

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import datetime as dt
+from typing import Any
+
+import httpx
 import pytest
 
 # ================================================================
@@ -119,6 +122,135 @@ class TestTax:
         result = check_tds_applicability(5000000, "194C")  # ₹50,000
         assert result["applicable"] is True
         assert result["tds_amount_paise"] > 0
+
+
+# ================================================================
+# Currency Tests
+# ================================================================
+
+
+class TestCurrency:
+    """Tests for Frankfurter currency conversion helpers."""
+
+    @pytest.mark.asyncio
+    async def test_get_exchange_rate_normalizes_inputs(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from vyapaar_mcp.cfo import currency
+
+        requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(
+                200,
+                json={"date": "2025-01-15", "rates": {"INR": 83.25}},
+                request=request,
+            )
+
+        transport = httpx.MockTransport(handler)
+        real_async_client = httpx.AsyncClient
+        monkeypatch.setattr(
+            currency.httpx,
+            "AsyncClient",
+            lambda **kwargs: real_async_client(transport=transport, **kwargs),
+        )
+
+        result = await currency.get_exchange_rate("usd", "inr", date="2025-01-15")
+
+        assert result == {
+            "base": "USD",
+            "target": "INR",
+            "rate": 83.25,
+            "date": "2025-01-15",
+            "source": "Frankfurter (ECB)",
+        }
+        assert requests[0].url.path == "/2025-01-15"
+        assert requests[0].url.params["base"] == "USD"
+        assert requests[0].url.params["symbols"] == "INR"
+
+    @pytest.mark.asyncio
+    async def test_convert_amount_same_currency_short_circuits(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from vyapaar_mcp.cfo import currency
+
+        async def fail_if_called(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            raise AssertionError("get_exchange_rate should not be called")
+
+        monkeypatch.setattr(currency, "get_exchange_rate", fail_if_called)
+
+        result = await currency.convert_amount(125.5, "inr", "INR")
+
+        assert result["converted_amount"] == 125.5
+        assert result["rate"] == 1.0
+        assert result["date"] == "latest"
+
+    @pytest.mark.asyncio
+    async def test_convert_amount_raises_when_rate_missing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from vyapaar_mcp.cfo import currency
+
+        async def no_rate(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            return {"rate": None, "date": "2025-01-15", "source": "Frankfurter (ECB)"}
+
+        monkeypatch.setattr(currency, "get_exchange_rate", no_rate)
+
+        with pytest.raises(ValueError, match="No rate found"):
+            await currency.convert_amount(100, "USD", "INR")
+
+    @pytest.mark.asyncio
+    async def test_convert_amount_applies_exchange_rate(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from vyapaar_mcp.cfo import currency
+
+        async def fixed_rate(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            return {"rate": 83.456, "date": "2025-01-15", "source": "Frankfurter (ECB)"}
+
+        monkeypatch.setattr(currency, "get_exchange_rate", fixed_rate)
+
+        result = await currency.convert_amount(10, "usd", "inr")
+
+        assert result == {
+            "original_amount": 10,
+            "original_currency": "USD",
+            "converted_amount": 834.56,
+            "converted_currency": "INR",
+            "rate": 83.456,
+            "date": "2025-01-15",
+            "source": "Frankfurter (ECB)",
+        }
+
+    @pytest.mark.asyncio
+    async def test_get_supported_currencies(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from vyapaar_mcp.cfo import currency
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.path == "/currencies"
+            return httpx.Response(
+                200,
+                json={"USD": "US Dollar", "INR": "Indian Rupee"},
+                request=request,
+            )
+
+        transport = httpx.MockTransport(handler)
+        real_async_client = httpx.AsyncClient
+        monkeypatch.setattr(
+            currency.httpx,
+            "AsyncClient",
+            lambda **kwargs: real_async_client(transport=transport, **kwargs),
+        )
+
+        assert await currency.get_supported_currencies() == {
+            "USD": "US Dollar",
+            "INR": "Indian Rupee",
+        }
 
 
 # ================================================================
@@ -308,8 +440,18 @@ class TestFraudDetection:
         from vyapaar_mcp.cfo.fraud import detect_fraud_patterns
 
         txns = [
-            {"agent_id": "agent1", "vendor_name": "Vendor A", "amount_paise": 10000, "pan": "ABCDE1234F"},
-            {"agent_id": "agent1", "vendor_name": "Vendor B", "amount_paise": 20000, "pan": "ABCDE1234F"},
+            {
+                "agent_id": "agent1",
+                "vendor_name": "Vendor A",
+                "amount_paise": 10000,
+                "pan": "ABCDE1234F",
+            },
+            {
+                "agent_id": "agent1",
+                "vendor_name": "Vendor B",
+                "amount_paise": 20000,
+                "pan": "ABCDE1234F",
+            },
         ]
         result = detect_fraud_patterns(txns)
         shared_pan_findings = [f for f in result["findings"] if f["type"] == "shared_pan"]
@@ -398,7 +540,9 @@ class TestContractAnalysis:
     def test_detect_auto_renewal(self) -> None:
         from vyapaar_mcp.cfo.contracts import analyze_contract_text
 
-        result = analyze_contract_text("This agreement shall automatically renew for successive 1-year terms.")
+        result = analyze_contract_text(
+            "This agreement shall automatically renew for successive 1-year terms."
+        )
         assert result["has_auto_renewal"] is True
 
     def test_clean_contract(self) -> None:
@@ -406,3 +550,330 @@ class TestContractAnalysis:
 
         result = analyze_contract_text("Simple service agreement without special clauses.")
         assert result["risk_level"] == "low"
+
+
+# ================================================================
+# Report Generation Tests
+# ================================================================
+
+
+class TestReports:
+    """Tests for PDF compliance report generation."""
+
+    def test_generate_governance_report_writes_pdf_with_optional_sections(self, tmp_path) -> None:
+        from vyapaar_mcp.cfo.reports import generate_governance_report
+
+        output_path = tmp_path / "governance" / "report.pdf"
+        summary = {
+            "budget_summary": {
+                "total_budget_paise": 1_000_000,
+                "utilized_paise": 250_000,
+                "remaining_paise": 750_000,
+                "utilization_percent": 25,
+            },
+            "risk_summary": {
+                "total_reviewed": 4,
+                "anomalies_detected": 1,
+                "payouts_held": 1,
+                "payouts_rejected": 0,
+            },
+            "forecast": {"severity": "warning", "runway_days": 14},
+            "recent_transactions": [
+                {
+                    "date": "2025-01-15",
+                    "vendor": "Acme Cloud Services",
+                    "amount_paise": 123_456,
+                    "category": "saas",
+                    "status": "approved",
+                }
+            ],
+            "gst_compliance": {
+                "validated": 3,
+                "invalid": 1,
+                "total_gst_paise": 22_222,
+            },
+            "fraud_detection": {
+                "patterns_found": 1,
+                "risk_level": "medium",
+                "findings": [
+                    {
+                        "type": "shared_pan",
+                        "severity": "medium",
+                        "description": "Two vendors share the same PAN",
+                    }
+                ],
+            },
+        }
+
+        result = generate_governance_report(summary, str(output_path))
+
+        assert result == str(output_path)
+        assert output_path.exists()
+        assert output_path.read_bytes().startswith(b"%PDF")
+        assert output_path.stat().st_size > 1_000
+
+
+# ================================================================
+# Sanctions Tests
+# ================================================================
+
+
+class TestSanctions:
+    """Tests for OpenSanctions screening and vendor scoring."""
+
+    @pytest.mark.asyncio
+    async def test_screen_against_sanctions_rate_limited(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from vyapaar_mcp.cfo import sanctions
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(429, request=request)
+
+        transport = httpx.MockTransport(handler)
+        real_async_client = httpx.AsyncClient
+        monkeypatch.setattr(
+            sanctions.httpx,
+            "AsyncClient",
+            lambda **kwargs: real_async_client(transport=transport, **kwargs),
+        )
+
+        result = await sanctions.screen_against_sanctions("Acme Ltd")
+
+        assert result["screened"] is False
+        assert result["risk_level"] == "unknown"
+        assert "Rate limited" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_screen_against_sanctions_api_error_status(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from vyapaar_mcp.cfo import sanctions
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(503, request=request)
+
+        transport = httpx.MockTransport(handler)
+        real_async_client = httpx.AsyncClient
+        monkeypatch.setattr(
+            sanctions.httpx,
+            "AsyncClient",
+            lambda **kwargs: real_async_client(transport=transport, **kwargs),
+        )
+
+        result = await sanctions.screen_against_sanctions("Acme Ltd")
+
+        assert result["screened"] is False
+        assert result["error"] == "API returned 503"
+        assert result["risk_level"] == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_screen_against_sanctions_clear_result(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from vyapaar_mcp.cfo import sanctions
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"results": []}, request=request)
+
+        transport = httpx.MockTransport(handler)
+        real_async_client = httpx.AsyncClient
+        monkeypatch.setattr(
+            sanctions.httpx,
+            "AsyncClient",
+            lambda **kwargs: real_async_client(transport=transport, **kwargs),
+        )
+
+        result = await sanctions.screen_against_sanctions("Acme Ltd")
+
+        assert result == {
+            "screened": True,
+            "entity": "Acme Ltd",
+            "matches": 0,
+            "risk_level": "clear",
+            "details": [],
+        }
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("score", "risk_level", "recommendation"),
+        [
+            (0.7, "high", "REVIEW"),
+            (0.4, "medium", "REVIEW"),
+            (0.2, "low", "PASS"),
+        ],
+    )
+    async def test_screen_against_sanctions_risk_bands(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        score: float,
+        risk_level: str,
+        recommendation: str,
+    ) -> None:
+        from vyapaar_mcp.cfo import sanctions
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={"results": [{"caption": "Possible Match", "score": score}]},
+                request=request,
+            )
+
+        transport = httpx.MockTransport(handler)
+        real_async_client = httpx.AsyncClient
+        monkeypatch.setattr(
+            sanctions.httpx,
+            "AsyncClient",
+            lambda **kwargs: real_async_client(transport=transport, **kwargs),
+        )
+
+        result = await sanctions.screen_against_sanctions("Possible Match")
+
+        assert result["risk_level"] == risk_level
+        assert result["recommendation"].startswith(recommendation)
+        assert result["max_match_score"] == score
+
+    @pytest.mark.asyncio
+    async def test_screen_against_sanctions_formats_critical_match(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from vyapaar_mcp.cfo import sanctions
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.path == "/match/default"
+            assert request.url.params["q"] == "Blocked Vendor"
+            assert request.url.params["schema"] == "Company"
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {
+                            "caption": "Blocked Vendor LLC",
+                            "score": 0.91,
+                            "schema": "Company",
+                            "datasets": [{"name": "OFAC SDN"}],
+                            "properties": {
+                                "country": ["US"],
+                                "topics": ["sanction"],
+                                "notes": ["not returned"],
+                            },
+                        }
+                    ]
+                },
+                request=request,
+            )
+
+        transport = httpx.MockTransport(handler)
+        real_async_client = httpx.AsyncClient
+        monkeypatch.setattr(
+            sanctions.httpx,
+            "AsyncClient",
+            lambda **kwargs: real_async_client(transport=transport, **kwargs),
+        )
+
+        result = await sanctions.screen_against_sanctions("Blocked Vendor")
+
+        assert result["screened"] is True
+        assert result["matches"] == 1
+        assert result["max_match_score"] == 0.91
+        assert result["risk_level"] == "critical"
+        assert result["recommendation"].startswith("BLOCK")
+        assert result["details"][0]["datasets"] == ["OFAC SDN"]
+        assert result["details"][0]["properties"] == {
+            "country": ["US"],
+            "topics": ["sanction"],
+        }
+
+    @pytest.mark.asyncio
+    async def test_screen_against_sanctions_handles_http_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from vyapaar_mcp.cfo import sanctions
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("network down", request=request)
+
+        transport = httpx.MockTransport(handler)
+        real_async_client = httpx.AsyncClient
+        monkeypatch.setattr(
+            sanctions.httpx,
+            "AsyncClient",
+            lambda **kwargs: real_async_client(transport=transport, **kwargs),
+        )
+
+        result = await sanctions.screen_against_sanctions("Acme Ltd")
+
+        assert result["screened"] is False
+        assert result["risk_level"] == "unknown"
+        assert result["error"] == "network down"
+
+    @pytest.mark.asyncio
+    async def test_comprehensive_vendor_screen_scores_components(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from vyapaar_mcp.cfo import sanctions, tax
+
+        async def sanctions_clear(_vendor_name: str) -> dict[str, Any]:
+            return {"screened": True, "max_match_score": 0.25, "risk_level": "low"}
+
+        monkeypatch.setattr(sanctions, "screen_against_sanctions", sanctions_clear)
+        monkeypatch.setattr(tax, "validate_gstin", lambda _gstin: {"valid": True})
+
+        result = await sanctions.comprehensive_vendor_screen(
+            "Acme Ltd",
+            vendor_url="https://acme.test",
+            gstin="27AAPFU0939F1ZV",
+        )
+
+        assert result["trust_score"] == 0.85
+        assert result["trust_level"] == "trusted"
+        assert result["component_scores"] == {"sanctions": 0.75, "gstin": 1.0}
+        assert result["recommendation"].startswith("✅")
+
+    @pytest.mark.asyncio
+    async def test_comprehensive_vendor_screen_unknown_without_gstin_is_review(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from vyapaar_mcp.cfo import sanctions
+
+        async def sanctions_unknown(_vendor_name: str) -> dict[str, Any]:
+            return {"screened": False, "risk_level": "unknown"}
+
+        monkeypatch.setattr(sanctions, "screen_against_sanctions", sanctions_unknown)
+
+        result = await sanctions.comprehensive_vendor_screen("Acme Ltd")
+
+        assert result["trust_score"] == 0.5
+        assert result["trust_level"] == "review"
+        assert result["component_scores"] == {"sanctions": 0.5, "gstin": 0.5}
+        assert result["recommendation"].startswith("⚠️")
+
+    @pytest.mark.asyncio
+    async def test_comprehensive_vendor_screen_blocks_low_trust_vendor(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from vyapaar_mcp.cfo import sanctions, tax
+
+        async def sanctions_hit(_vendor_name: str) -> dict[str, Any]:
+            return {"screened": True, "max_match_score": 0.9, "risk_level": "critical"}
+
+        monkeypatch.setattr(sanctions, "screen_against_sanctions", sanctions_hit)
+        monkeypatch.setattr(tax, "validate_gstin", lambda _gstin: {"valid": False})
+
+        result = await sanctions.comprehensive_vendor_screen("Blocked Ltd", gstin="bad")
+
+        assert result["trust_score"] == 0.06
+        assert result["trust_level"] == "blocked"
+        assert result["component_scores"] == {
+            "sanctions": pytest.approx(0.1),
+            "gstin": 0.0,
+        }
+        assert result["recommendation"].startswith("🛑")

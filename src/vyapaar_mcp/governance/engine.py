@@ -203,7 +203,7 @@ class GovernanceEngine:
         try:
             parsed = urlparse(url)
             return parsed.netloc or parsed.path.split("/")[0]
-        except Exception:
+        except (ValueError, TypeError, AttributeError):
             return None
 
     @staticmethod
