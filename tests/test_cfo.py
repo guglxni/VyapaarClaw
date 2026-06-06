@@ -831,10 +831,15 @@ class TestSanctions:
             gstin="27AAPFU0939F1ZV",
         )
 
-        assert result["trust_score"] == 0.85
-        assert result["trust_level"] == "trusted"
-        assert result["component_scores"] == {"sanctions": 0.75, "gstin": 1.0}
-        assert result["recommendation"].startswith("✅")
+        assert result["trust_score"] == pytest.approx(0.69, abs=0.01)
+        assert result["trust_level"] == "review"
+        assert result["component_scores"] == {
+            "sanctions": 0.75,
+            "gstin": 1.0,
+            "gleif": 0.5,
+            "safe_browsing": 0.5,
+        }
+        assert result["recommendation"].startswith("⚠️")
 
     @pytest.mark.asyncio
     async def test_comprehensive_vendor_screen_unknown_without_gstin_is_review(
@@ -852,7 +857,12 @@ class TestSanctions:
 
         assert result["trust_score"] == 0.5
         assert result["trust_level"] == "review"
-        assert result["component_scores"] == {"sanctions": 0.5, "gstin": 0.5}
+        assert result["component_scores"] == {
+            "sanctions": 0.5,
+            "gstin": 0.5,
+            "gleif": 0.5,
+            "safe_browsing": 0.5,
+        }
         assert result["recommendation"].startswith("⚠️")
 
     @pytest.mark.asyncio
@@ -870,10 +880,12 @@ class TestSanctions:
 
         result = await sanctions.comprehensive_vendor_screen("Blocked Ltd", gstin="bad")
 
-        assert result["trust_score"] == 0.06
+        assert result["trust_score"] == pytest.approx(0.26, abs=0.01)
         assert result["trust_level"] == "blocked"
         assert result["component_scores"] == {
             "sanctions": pytest.approx(0.1),
             "gstin": 0.0,
+            "gleif": 0.5,
+            "safe_browsing": 0.5,
         }
         assert result["recommendation"].startswith("🛑")

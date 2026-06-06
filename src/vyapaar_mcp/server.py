@@ -20,7 +20,8 @@ from starlette.responses import Response
 from starlette.routing import Mount, Route
 from transitions.core import MachineError
 
-from vyapaar_mcp.audit.logger import log_decision
+from vyapaar_mcp.audit.logger import log_decision, set_denchclaw_client
+from vyapaar_mcp.integrations.denchclaw import DenchClawClient
 from vyapaar_mcp.config import load_config
 from vyapaar_mcp.db.postgres import PostgresClient
 from vyapaar_mcp.db.redis_client import RedisClient
@@ -29,11 +30,17 @@ from vyapaar_mcp.egress.razorpay_actions import RazorpayActions
 from vyapaar_mcp.egress.slack_notifier import SlackNotifier
 from vyapaar_mcp.egress.telegram_notifier import TelegramNotifier
 from vyapaar_mcp.governance.engine import GovernanceEngine
+from vyapaar_mcp.governance.options import GovernanceOptions
+from vyapaar_mcp.cfo.gst_providers import build_gst_chain
 from vyapaar_mcp.handlers.http import (
+    make_agents_endpoint,
+    make_audit_endpoint,
+    make_dashboard_endpoint,
     make_health_endpoint,
     make_slack_actions_endpoint,
     make_telegram_callback_endpoint,
 )
+from vyapaar_mcp.research.exa_client import ExaClient
 from vyapaar_mcp.ingress.polling import PayoutPoller
 from vyapaar_mcp.ingress.razorpay_bridge import RazorpayBridge
 from vyapaar_mcp.ingress.webhook import (
@@ -226,20 +233,6 @@ async def _startup() -> None:
             "Use poll_razorpay_payouts tool manually."
         )
 
-    # Governance Engine
-    state.governance = GovernanceEngine(
-        redis=state.redis,
-        postgres=state.postgres,
-        safe_browsing=state.safe_browsing,
-        rate_limit_max=state.config.rate_limit_max_requests,
-        rate_limit_window=state.config.rate_limit_window_seconds,
-    )
-    logger.info(
-        "✅ Governance engine ready (rate limit: %d req / %ds window)",
-        state.config.rate_limit_max_requests,
-        state.config.rate_limit_window_seconds,
-    )
-
     # GLEIF Vendor Verification (FOSS)
     state.cb_gleif = CircuitBreaker(
         "gleif",
@@ -263,6 +256,28 @@ async def _startup() -> None:
         state.config.anomaly_risk_threshold,
     )
 
+    # Governance Engine (after anomaly scorer — wired into 6-layer pipeline)
+    gov_options = GovernanceOptions.from_config(state.config)
+    state.governance = GovernanceEngine(
+        redis=state.redis,
+        postgres=state.postgres,
+        safe_browsing=state.safe_browsing,
+        rate_limit_max=state.config.rate_limit_max_requests,
+        rate_limit_window=state.config.rate_limit_window_seconds,
+        options=gov_options,
+        anomaly_scorer=state.anomaly_scorer,
+    )
+    logger.info(
+        "✅ Governance engine ready (rate limit: %d req / %ds, "
+        "gstin=%s ifsc=%s sanctions=%s anomaly=%s)",
+        state.config.rate_limit_max_requests,
+        state.config.rate_limit_window_seconds,
+        gov_options.check_gstin_format,
+        gov_options.check_ifsc_format,
+        gov_options.check_sanctions,
+        gov_options.check_anomaly,
+    )
+
     # ntfy Notifier (FOSS — Slack fallback)
     if state.config.ntfy_topic:
         state.ntfy = NtfyNotifier(
@@ -277,6 +292,56 @@ async def _startup() -> None:
         )
     else:
         logger.info("ℹ️  ntfy not configured — set VYAPAAR_NTFY_TOPIC to enable push fallback")
+
+    # Exa research client (Phase 2)
+    state.exa_client = ExaClient(api_key=state.config.exa_api_key)
+    if state.exa_client.configured:
+        logger.info("✅ Exa research client initialized")
+    else:
+        logger.info("ℹ️  Exa not configured — set VYAPAAR_EXA_API_KEY for vendor research")
+
+    # GST verification chain (Phase 2)
+    state.gst_chain = build_gst_chain(
+        browserwire_url=state.config.browserwire_url,
+        browserwire_key=state.config.browserwire_api_key,
+        gsp_url=state.config.gsp_api_url,
+        gsp_key=state.config.gsp_api_key,
+        enable_live=bool(state.config.browserwire_url or state.config.gsp_api_key),
+    )
+    logger.info(
+        "✅ GST verification chain ready (browserwire=%s, gsp=%s, live_gov=%s)",
+        bool(state.config.browserwire_url),
+        bool(state.config.gsp_api_key),
+        state.config.governance_live_gst,
+    )
+
+    # Workflow Postgres persistence (Phase 3)
+    from vyapaar_mcp.cfo.workflow import set_workflow_store
+    if state.postgres:
+        set_workflow_store(state.postgres)
+        logger.info("✅ Workflow persistence enabled (PostgreSQL)")
+
+    # DenchClaw CRM integration
+    state.denchclaw = DenchClawClient(
+        base_url=state.config.denchclaw_url,
+        enabled=state.config.denchclaw_enabled,
+    )
+    set_denchclaw_client(
+        state.denchclaw if state.config.denchclaw_sync_auto else None
+    )
+    if state.config.denchclaw_enabled:
+        if await state.denchclaw.is_available():
+            logger.info("✅ DenchClaw CRM connected at %s", state.config.denchclaw_url)
+            try:
+                await state.denchclaw.ensure_schema()
+                logger.info("✅ DenchClaw vyapaar_audit + vyapaar_vendor objects ready")
+            except Exception as exc:
+                logger.warning("DenchClaw schema bootstrap skipped: %s", exc)
+        else:
+            logger.info(
+                "ℹ️  DenchClaw not running at %s — install: npx denchclaw@latest",
+                state.config.denchclaw_url,
+            )
 
     # Primary LLM Client (LiteLLM — any provider)
     state.llm_client = LLMClient(state.config)
@@ -1026,6 +1091,15 @@ telegram_callback_endpoint = make_telegram_callback_endpoint(
     require_services=_require,
     handle_telegram_action=handle_telegram_action,
 )
+dashboard_endpoint = make_dashboard_endpoint(
+    get_postgres=lambda: state.postgres,
+    get_redis=lambda: state.redis,
+)
+agents_endpoint = make_agents_endpoint(
+    get_postgres=lambda: state.postgres,
+    get_redis=lambda: state.redis,
+)
+audit_endpoint = make_audit_endpoint(get_postgres=lambda: state.postgres)
 
 
 # ================================================================
@@ -2081,10 +2155,10 @@ async def track_payout_in_ledger(
         gst_paise: GST amount in paise (if applicable).
         tds_paise: TDS deduction in paise (if applicable).
     """
-    from vyapaar_mcp.cfo.ledger import get_ledger
+    from vyapaar_mcp.cfo.ledger import get_ledger, persist_journal_entry
 
     ledger = get_ledger()
-    return ledger.record_payout(
+    entry = ledger.record_payout(
         amount_paise=amount_paise,
         description=description,
         vendor_name=vendor_name,
@@ -2093,6 +2167,10 @@ async def track_payout_in_ledger(
         gst_paise=gst_paise,
         tds_paise=tds_paise,
     )
+    if state.postgres:
+        await persist_journal_entry(state.postgres, entry)
+        entry["persisted"] = True
+    return entry
 
 
 @mcp.tool()
@@ -2104,7 +2182,16 @@ async def get_trial_balance() -> dict[str, Any]:
     """
     from vyapaar_mcp.cfo.ledger import get_ledger
 
-    return get_ledger().get_trial_balance()
+    in_memory = get_ledger().get_trial_balance()
+    if state.postgres:
+        try:
+            pg_balance = await state.postgres.get_ledger_trial_balance()
+            if pg_balance:
+                in_memory["postgres_trial_balance"] = pg_balance
+                in_memory["source"] = "memory+postgres"
+        except Exception as exc:
+            in_memory["postgres_error"] = str(exc)
+    return in_memory
 
 
 @mcp.tool()
@@ -2238,7 +2325,31 @@ async def screen_vendor_sanctions(
     """
     from vyapaar_mcp.cfo.sanctions import comprehensive_vendor_screen
 
-    return await comprehensive_vendor_screen(vendor_name, gstin=gstin)
+    result = await comprehensive_vendor_screen(
+        vendor_name,
+        gstin=gstin,
+        gleif_checker=state.gleif,
+        safe_browsing_checker=state.safe_browsing,
+    )
+
+    if state.denchclaw and state.config.denchclaw_enabled:
+        try:
+            from datetime import UTC, datetime
+
+            await state.denchclaw.sync_vendor({
+                "vendor_name": vendor_name,
+                "gstin": gstin,
+                "trust_score": result.get("trust_score"),
+                "trust_level": result.get("trust_level"),
+                "sanctions_status": result.get("sanctions", {}).get("risk_level", ""),
+                "last_screened": datetime.now(tz=UTC).isoformat(),
+            })
+            result["denchclaw_synced"] = True
+        except Exception as exc:
+            result["denchclaw_synced"] = False
+            result["denchclaw_error"] = str(exc)
+
+    return result
 
 
 @mcp.tool()
@@ -2265,23 +2376,29 @@ async def manage_payout_workflow(
         agent_id: Agent ID (required for create).
         reason: Reason for the action (for audit trail).
     """
-    from vyapaar_mcp.cfo.workflow import create_workflow, get_workflow, list_workflows
+    from vyapaar_mcp.cfo.workflow import (
+        create_workflow,
+        get_workflow_async,
+        list_workflows_async,
+        persist_workflow,
+    )
 
     if action == "create":
         wf = create_workflow(payout_id, amount_paise, agent_id)
+        await persist_workflow(wf)
         return wf.get_status()
 
     if action == "list":
-        return {"workflows": list_workflows()}
+        return {"workflows": await list_workflows_async()}
 
     if action == "status":
-        wf = get_workflow(payout_id)
+        wf = await get_workflow_async(payout_id)
         if not wf:
             return {"error": f"Workflow '{payout_id}' not found"}
         return wf.get_status()
 
     # State transitions
-    wf = get_workflow(payout_id)
+    wf = await get_workflow_async(payout_id)
     if not wf:
         return {"error": f"Workflow '{payout_id}' not found"}
 
@@ -2313,7 +2430,205 @@ async def manage_payout_workflow(
     except (MachineError, TypeError, AttributeError, ValueError) as exc:
         return {"error": str(exc), "current_state": wf.state}  # type: ignore[attr-defined]
 
+    await persist_workflow(wf)
     return wf.get_status()
+
+
+# ================================================================
+# DenchClaw CRM Integration Tools
+# ================================================================
+
+
+@mcp.tool()
+async def get_denchclaw_status() -> dict[str, Any]:
+    """Check DenchClaw CRM integration health and object counts.
+
+    DenchClaw (https://github.com/DenchHQ/DenchClaw) stores audit logs
+    and vendor KYB records as searchable CRM object tables.
+    """
+    if state.denchclaw is None:
+        return {"enabled": False, "error": "DenchClaw client not initialized"}
+    return await state.denchclaw.status()
+
+
+@mcp.tool()
+async def sync_audit_to_denchclaw(
+    payout_id: str = "",
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Sync governance audit logs from PostgreSQL to DenchClaw CRM.
+
+    Syncs one payout by ID, or the most recent `limit` entries if no ID given.
+    """
+    _require(postgres=state.postgres)
+    if state.denchclaw is None or not state.config.denchclaw_enabled:
+        return {"synced": 0, "error": "DenchClaw integration disabled"}
+
+    logs = await state.postgres.get_audit_logs(payout_id=payout_id or None, limit=limit)
+    synced = 0
+    errors: list[str] = []
+    for log in logs:
+        try:
+            result = await state.denchclaw.sync_audit_entry({
+                "payout_id": log.payout_id,
+                "agent_id": log.agent_id,
+                "amount": log.amount,
+                "decision": log.decision.value,
+                "reason_code": log.reason_code.value,
+                "reason_detail": log.reason_detail,
+                "vendor_name": log.vendor_name,
+                "vendor_url": log.vendor_url,
+                "processing_ms": log.processing_ms,
+            })
+            if result.get("synced"):
+                synced += 1
+        except Exception as exc:
+            errors.append(f"{log.payout_id}: {exc}")
+
+    return {"synced": synced, "total": len(logs), "errors": errors}
+
+
+@mcp.tool()
+async def get_denchclaw_audit_log(
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, Any]:
+    """Read audit log entries from DenchClaw CRM object table."""
+    if state.denchclaw is None:
+        return {"entries": [], "error": "DenchClaw not initialized"}
+    from vyapaar_mcp.integrations.denchclaw_schema import AUDIT_OBJECT
+    return await state.denchclaw.get_object_entries(AUDIT_OBJECT, page, page_size)
+
+
+# ================================================================
+# Phase 2 — Live Verification & Research Tools
+# ================================================================
+
+
+@mcp.tool()
+async def verify_gstin_live(
+    gstin: str,
+    vendor_name: str = "",
+) -> dict[str, Any]:
+    """Verify GSTIN with tiered providers: format → Browserwire → GSP API.
+
+    Returns live registration status, legal name, and recommendation
+    (PASS / HOLD / REJECT) when portal or GSP credentials are configured.
+    """
+    if state.gst_chain is None:
+        state.gst_chain = build_gst_chain(
+            browserwire_url=state.config.browserwire_url if state.config else "",
+            browserwire_key=state.config.browserwire_api_key if state.config else "",
+            gsp_url=state.config.gsp_api_url if state.config else "",
+            gsp_key=state.config.gsp_api_key if state.config else "",
+        )
+    return await state.gst_chain.verify(gstin, vendor_name)
+
+
+@mcp.tool()
+async def research_vendor(
+    vendor_name: str,
+    extra_context: str = "",
+) -> dict[str, Any]:
+    """Research a vendor using Exa search for KYB due diligence.
+
+    Returns company research results and adverse signal scan.
+    Requires VYAPAAR_EXA_API_KEY.
+    """
+    if state.exa_client is None:
+        state.exa_client = ExaClient(
+            api_key=state.config.exa_api_key if state.config else ""
+        )
+    return await state.exa_client.research_vendor(vendor_name, extra_context)
+
+
+@mcp.tool()
+async def screen_adverse_media(
+    vendor_name: str,
+) -> dict[str, Any]:
+    """Screen vendor for adverse media (fraud, lawsuits, penalties).
+
+    Uses Exa search with keyword risk scoring. Requires VYAPAAR_EXA_API_KEY.
+    """
+    from vyapaar_mcp.reputation.adverse_media import screen_adverse_media as _screen
+
+    if state.exa_client is None:
+        state.exa_client = ExaClient(
+            api_key=state.config.exa_api_key if state.config else ""
+        )
+    return await _screen(vendor_name, exa_client=state.exa_client)
+
+
+# ================================================================
+# Phase 3 — Full AI CFO Tools
+# ================================================================
+
+
+@mcp.tool()
+async def validate_einvoice(
+    irn: str = "",
+    ack_no: str = "",
+    gstin: str = "",
+    invoice_number: str = "",
+    invoice_date: str = "",
+) -> dict[str, Any]:
+    """Validate GST e-invoice IRN / ack number for B2B payout matching."""
+    from vyapaar_mcp.cfo.einvoice import validate_einvoice_bundle
+
+    return validate_einvoice_bundle(
+        irn=irn,
+        ack_no=ack_no,
+        gstin=gstin,
+        invoice_number=invoice_number,
+        invoice_date=invoice_date,
+    )
+
+
+@mcp.tool()
+async def extract_invoice_data(
+    file_path: str = "",
+    file_base64: str = "",
+) -> dict[str, Any]:
+    """Extract structured invoice data via HyperAPI OCR.
+
+    Returns vendor name, GSTIN, amounts, and line items from PDF/image.
+    Requires VYAPAAR_HYPERAPI_API_KEY.
+    """
+    from vyapaar_mcp.cfo.invoice_ocr import extract_invoice
+
+    cfg = state.config
+    return await extract_invoice(
+        file_path=file_path,
+        file_base64=file_base64,
+        api_key=cfg.hyperapi_api_key if cfg else "",
+        base_url=cfg.hyperapi_base_url if cfg else "https://api.hyperbots.com",
+    )
+
+
+@mcp.tool()
+async def detect_fraud_network_ml(
+    transactions: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Enhanced fraud detection with graph patterns + optional PyGOD GNN."""
+    from vyapaar_mcp.cfo.fraud import detect_fraud_with_ml
+
+    if transactions is None and state.postgres:
+        try:
+            logs = await state.postgres.get_audit_logs(limit=100)
+            transactions = [
+                {
+                    "agent_id": log.agent_id,
+                    "vendor_name": log.vendor_name or "unknown",
+                    "amount_paise": log.amount,
+                }
+                for log in logs
+            ]
+        except AUDIT_READ_ERRORS as exc:
+            logger.warning("Skipping audit-log load for ML fraud: %s", exc)
+            transactions = []
+
+    return detect_fraud_with_ml(transactions or [])
+
 
 # ================================================================
 # Server Runner
@@ -2357,12 +2672,35 @@ def run_server_sync() -> None:
             # Return empty response after SSE connection closes
             return Response()
 
+        from starlette.middleware import Middleware
+        from starlette.middleware.base import BaseHTTPMiddleware
+        from starlette.responses import JSONResponse
+        
+        async def auth_middleware(request: Request, call_next: Any) -> Response:
+            secret = os.environ.get("VYAPAAR_MCP_SECRET")
+            if not secret:
+                return await call_next(request)
+            
+            # Allow health checks and unauthenticated webhooks
+            if request.url.path in ["/health", "/slack/actions", "/telegram/callback"]:
+                return await call_next(request)
+            
+            auth_header = request.headers.get("authorization", "")
+            if not auth_header.startswith("Bearer ") or auth_header[7:] != secret:
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+                
+            return await call_next(request)
+
         starlette_app = Starlette(
-            debug=state.config.dev_mode,
+            debug=state.config.dev_mode if state.config else os.environ.get("VYAPAAR_DEV_MODE", "").lower() == "true",
+            middleware=[Middleware(BaseHTTPMiddleware, dispatch=auth_middleware)],
             routes=[
                 Route("/sse", endpoint=sse_handler, methods=["GET", "POST"]),
                 Mount("/messages/", app=sse.handle_post_message),
                 Route("/health", endpoint=health_endpoint, methods=["GET"]),
+                Route("/api/v1/dashboard", endpoint=dashboard_endpoint, methods=["GET"]),
+                Route("/api/v1/agents", endpoint=agents_endpoint, methods=["GET"]),
+                Route("/api/v1/audit", endpoint=audit_endpoint, methods=["GET"]),
                 Route("/slack/actions", endpoint=slack_actions_endpoint, methods=["POST"]),
                 Route("/telegram/callback", endpoint=telegram_callback_endpoint, methods=["POST"]),
             ],

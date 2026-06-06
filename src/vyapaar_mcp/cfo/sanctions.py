@@ -2,16 +2,31 @@
 
 Multi-layered vendor screening:
 1. OpenSanctions — global watchlist/PEP database (FOSS)
-2. Negative news — basic adverse media signals
-3. Integrates with existing GLEIF + Safe Browsing checks
+2. GLEIF — legal entity verification (when checker provided)
+3. Google Safe Browsing — URL reputation (when checker provided)
+4. GSTIN format validation
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
+
+from vyapaar_mcp.cfo.tax import validate_gstin
+from vyapaar_mcp.reputation.trust_score import (
+    compute_vendor_trust_score,
+    score_from_gleif,
+    score_from_safe_browsing,
+    score_from_sanctions,
+    score_from_gstin,
+    trust_recommendation,
+)
+
+if TYPE_CHECKING:
+    from vyapaar_mcp.reputation.gleif import GLEIFChecker
+    from vyapaar_mcp.reputation.safe_browsing import SafeBrowsingChecker
 
 logger = logging.getLogger(__name__)
 
@@ -126,61 +141,64 @@ async def comprehensive_vendor_screen(
     vendor_name: str,
     vendor_url: str = "",
     gstin: str = "",
+    gleif_checker: GLEIFChecker | None = None,
+    safe_browsing_checker: SafeBrowsingChecker | None = None,
 ) -> dict[str, Any]:
     """Run a multi-layer vendor due diligence check.
 
     Combines:
     1. Sanctions screening (OpenSanctions)
-    2. GSTIN validation (if provided)
-    3. Produces a composite trust score
-
-    Note: GLEIF and Safe Browsing checks are handled by existing
-    VyapaarClaw reputation modules. This function adds the
-    sanctions layer on top.
+    2. GLEIF entity verification (optional checker)
+    3. Google Safe Browsing URL check (optional checker)
+    4. GSTIN format validation (if provided)
+    5. Composite Vendor Trust Score
     """
     sanctions_result = await screen_against_sanctions(vendor_name)
 
-    # Composite scoring
-    scores: dict[str, float] = {}
+    gleif_result: dict[str, Any] | None = None
+    gleif_verified: bool | None = None
+    if gleif_checker is not None:
+        gleif_response = await gleif_checker.search_entity(vendor_name)
+        gleif_verified = gleif_response.is_verified
+        gleif_result = {
+            "verified": gleif_verified,
+            "match_count": gleif_response.match_count,
+            "error": gleif_response.error,
+        }
 
-    # Sanctions score (inverted — high match = low trust)
-    if sanctions_result.get("screened"):
-        sanctions_score = 1.0 - sanctions_result.get("max_match_score", 0)
-        scores["sanctions"] = sanctions_score
-    else:
-        scores["sanctions"] = 0.5  # Unknown = medium risk
+    safe_browsing_result: dict[str, Any] | None = None
+    url_safe: bool | None = None
+    if safe_browsing_checker is not None and vendor_url:
+        sb = await safe_browsing_checker.check_url(vendor_url)
+        url_safe = sb.is_safe
+        safe_browsing_result = {
+            "url": vendor_url,
+            "safe": url_safe,
+            "threat_types": sb.threat_types,
+        }
 
-    # GSTIN score (if provided)
+    gstin_valid: bool | None = None
     if gstin:
-        from vyapaar_mcp.cfo.tax import validate_gstin
         gstin_result = validate_gstin(gstin)
-        scores["gstin"] = 1.0 if gstin_result.get("valid") else 0.0
-    else:
-        scores["gstin"] = 0.5  # Not provided = neutral
+        gstin_valid = bool(gstin_result.get("valid"))
 
-    # Composite trust score
-    weights = {"sanctions": 0.6, "gstin": 0.4}
-    trust_score = sum(scores[k] * weights[k] for k in scores)
+    scores: dict[str, float] = {
+        "sanctions": score_from_sanctions(sanctions_result),
+        "gstin": score_from_gstin(gstin, gstin_valid),
+        "gleif": score_from_gleif(gleif_verified),
+        "safe_browsing": score_from_safe_browsing(url_safe),
+    }
 
-    if trust_score >= 0.8:
-        trust_level = "trusted"
-    elif trust_score >= 0.5:
-        trust_level = "review"
-    else:
-        trust_level = "blocked"
+    trust_score, trust_level = compute_vendor_trust_score(scores)
 
     return {
         "vendor_name": vendor_name,
         "vendor_url": vendor_url,
-        "trust_score": round(trust_score, 2),
+        "trust_score": trust_score,
         "trust_level": trust_level,
         "component_scores": scores,
         "sanctions": sanctions_result,
-        "recommendation": (
-            "✅ Vendor cleared for payouts"
-            if trust_level == "trusted"
-            else "⚠️ Manual review recommended"
-            if trust_level == "review"
-            else "🛑 Block all payouts to this vendor"
-        ),
+        "gleif": gleif_result,
+        "safe_browsing": safe_browsing_result,
+        "recommendation": trust_recommendation(trust_level),
     }

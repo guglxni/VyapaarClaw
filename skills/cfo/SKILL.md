@@ -374,16 +374,16 @@ Returns:
 Use when: Context is tainted and a high-privilege tool call is needed.
 The security LLM independently decides if the call is safe.
 
-#### `get_archestra_status`
-Check the Archestra deterministic policy enforcement layer. Archestra
-is a security proxy that enforces hard boundaries (vs. probabilistic
-guardrails that can be bypassed).
+#### `get_security_status`
+Check the security proxy deterministic policy enforcement layer. The
+security proxy enforces hard boundaries (vs. probabilistic guardrails
+that can be bypassed).
 
 ```
 Parameters: None
 
 Returns:
-  archestra_enabled, archestra_url, policy_set_id,
+  security_proxy_enabled, security_proxy_url, policy_set_id,
   security_llm config, dual_llm_config, azure_guardrails
 ```
 
@@ -394,9 +394,8 @@ handling sensitive operations.
 
 ### AI Tool
 
-#### `azure_chat`
-Send a chat completion to Kimi K2.5 via Azure AI Services. Returns both
-`content` and `reasoning_content` (Kimi is a reasoning model).
+#### `llm_chat`
+Send a chat completion to the configured LLM (any provider via LiteLLM).
 
 **Security note**: This tool marks context as TAINTED because LLM responses
 can contain injected content.
@@ -625,7 +624,7 @@ Regular health check and risk assessment for all governed agents.
 2. **Metrics** — `get_metrics()` for decision distribution and latency
 3. **Audit** — `get_audit_log(limit=100)` for recent decisions
 4. **Risk profiles** — `get_agent_risk_profile()` per agent
-5. **Security** — `check_context_taint()` and `get_archestra_status()`
+5. **Security** — `check_context_taint()` and `get_security_status()`
 6. **Policy tuning** — Adjust limits with `set_agent_policy()` based on findings
 
 ### Workflow 5: Handle Human Approval
@@ -710,7 +709,7 @@ sessions_spawn:
         Use check_vendor_reputation, verify_vendor_entity. Search the web
         for the vendor website and any fraud reports. Return a consolidated
         trust report with recommendation: TRUSTED / SUSPICIOUS / BLOCKED."
-  model: "gpt-4o-mini"  # cheaper model for research tasks
+  model: "${VYAPAAR_DELEGATION_LLM_MODEL}"  # cheaper delegation model
 ```
 
 ### Workflow 10: Anomaly Investigation (Delegated)
@@ -724,7 +723,7 @@ sessions_spawn:
         check get_agent_risk_profile, get_spending_trends. Write an
         investigation report explaining whether this is a genuine anomaly
         or a false positive."
-  model: "gpt-4o-mini"
+  model: "${VYAPAAR_DELEGATION_LLM_MODEL}"
 ```
 
 ---
@@ -816,7 +815,7 @@ Tools that ingest external data mark the execution context as "tainted":
 - `check_vendor_reputation` — Google API response is untrusted
 - `verify_vendor_entity` — GLEIF API response is untrusted
 - `score_transaction_risk` — processes untrusted historical data
-- `azure_chat` — LLM output can contain injected instructions
+- `llm_chat` — LLM output can contain injected instructions
 
 Once tainted, tools listed in `dual_llm_tools` (e.g., `poll_razorpay_payouts`,
 `score_transaction_risk`) require validation through the security LLM before
@@ -832,10 +831,10 @@ The security LLM operates in complete isolation:
 If the security LLM is unavailable and `quarantine_strict` is true,
 the tool call is DENIED. Fail closed, not open.
 
-### Archestra (Deterministic Layer)
-Archestra is an optional security proxy that enforces hard policy boundaries.
-Unlike probabilistic guardrails (which can be jailbroken), Archestra uses
-deterministic access control rules. Check status with `get_archestra_status()`.
+### Security Proxy (Deterministic Layer)
+The security proxy is an optional layer that enforces hard policy boundaries.
+Unlike probabilistic guardrails (which can be jailbroken), it uses
+deterministic access control rules. Check status with `get_security_status()`.
 
 ---
 

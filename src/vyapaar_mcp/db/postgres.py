@@ -102,6 +102,35 @@ class PostgresClient:
                 CREATE INDEX IF NOT EXISTS idx_audit_payout
                 ON audit_logs(payout_id);
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS payout_workflows (
+                    payout_id       VARCHAR(64)  PRIMARY KEY,
+                    agent_id        VARCHAR(128) NOT NULL DEFAULT '',
+                    amount_paise    BIGINT       NOT NULL DEFAULT 0,
+                    current_state   VARCHAR(32)  NOT NULL DEFAULT 'queued',
+                    history         JSONB        NOT NULL DEFAULT '[]',
+                    created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+                    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+                );
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS ledger_entries (
+                    id              BIGSERIAL    PRIMARY KEY,
+                    reference       VARCHAR(128) NOT NULL DEFAULT '',
+                    description     TEXT         NOT NULL,
+                    account_code    VARCHAR(16)  NOT NULL,
+                    account_name    VARCHAR(128) NOT NULL,
+                    debit_paise     BIGINT       NOT NULL DEFAULT 0,
+                    credit_paise    BIGINT       NOT NULL DEFAULT 0,
+                    entry_date      DATE         NOT NULL DEFAULT CURRENT_DATE,
+                    metadata        JSONB        NOT NULL DEFAULT '{}',
+                    created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+                );
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_ledger_reference
+                ON ledger_entries(reference);
+            """)
             logger.info("Database migrations completed")
 
     # ================================================================
@@ -346,3 +375,166 @@ class PostgresClient:
             )
             for row in rows
         ]
+
+    # ================================================================
+    # Payout Workflows (Phase 3 persistence)
+    # ================================================================
+
+    async def save_workflow(
+        self,
+        payout_id: str,
+        agent_id: str,
+        amount_paise: int,
+        current_state: str,
+        history: list[dict[str, Any]],
+    ) -> None:
+        """Upsert payout workflow state."""
+        import json
+
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO payout_workflows
+                    (payout_id, agent_id, amount_paise, current_state, history, updated_at)
+                VALUES ($1, $2, $3, $4, $5::jsonb, NOW())
+                ON CONFLICT (payout_id) DO UPDATE SET
+                    current_state = EXCLUDED.current_state,
+                    history = EXCLUDED.history,
+                    updated_at = NOW()
+                """,
+                payout_id,
+                agent_id,
+                amount_paise,
+                current_state,
+                json.dumps(history),
+            )
+
+    async def get_workflow(self, payout_id: str) -> dict[str, Any] | None:
+        """Load workflow by payout ID."""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM payout_workflows WHERE payout_id = $1",
+                payout_id,
+            )
+        if not row:
+            return None
+        return {
+            "payout_id": row["payout_id"],
+            "agent_id": row["agent_id"],
+            "amount_paise": row["amount_paise"],
+            "current_state": row["current_state"],
+            "history": row["history"] or [],
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+        }
+
+    async def list_workflows(self, state: str | None = None) -> list[dict[str, Any]]:
+        """List all persisted workflows."""
+        async with self.pool.acquire() as conn:
+            if state:
+                rows = await conn.fetch(
+                    "SELECT * FROM payout_workflows WHERE current_state = $1 ORDER BY updated_at DESC",
+                    state,
+                )
+            else:
+                rows = await conn.fetch(
+                    "SELECT * FROM payout_workflows ORDER BY updated_at DESC LIMIT 100"
+                )
+        return [
+            {
+                "payout_id": row["payout_id"],
+                "agent_id": row["agent_id"],
+                "amount_paise": row["amount_paise"],
+                "current_state": row["current_state"],
+                "history": row["history"] or [],
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            }
+            for row in rows
+        ]
+
+    # ================================================================
+    # Ledger Entries (Phase 3 persistence)
+    # ================================================================
+
+    async def write_ledger_entries(
+        self,
+        reference: str,
+        description: str,
+        entries: list[dict[str, Any]],
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Persist balanced ledger journal lines."""
+        import json
+        from datetime import date
+
+        async with self.pool.acquire() as conn:
+            entry_date = date.today()
+            for line in entries:
+                await conn.execute(
+                    """
+                    INSERT INTO ledger_entries
+                        (reference, description, account_code, account_name,
+                         debit_paise, credit_paise, entry_date, metadata)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+                    """,
+                    reference,
+                    description,
+                    line.get("account_code", ""),
+                    line.get("account_name", ""),
+                    line.get("debit_paise", 0),
+                    line.get("credit_paise", 0),
+                    entry_date,
+                    json.dumps(metadata or {}),
+                )
+
+    async def get_ledger_trial_balance(self) -> list[dict[str, Any]]:
+        """Aggregate ledger entries into trial balance."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT account_code, account_name,
+                       SUM(debit_paise) as total_debit,
+                       SUM(credit_paise) as total_credit
+                FROM ledger_entries
+                GROUP BY account_code, account_name
+                ORDER BY account_code
+                """
+            )
+        return [
+            {
+                "account_code": row["account_code"],
+                "account_name": row["account_name"],
+                "debit_paise": row["total_debit"] or 0,
+                "credit_paise": row["total_credit"] or 0,
+                "balance_paise": (row["total_debit"] or 0) - (row["total_credit"] or 0),
+            }
+            for row in rows
+        ]
+
+    async def get_dashboard_agents_with_spend(
+        self,
+        redis_get_spend: Any,
+    ) -> list[dict[str, Any]]:
+        """Build agent list with budget utilisation for dashboard API."""
+        agents = await self.list_all_agents()
+        result = []
+        for agent in agents:
+            agent_id = agent["agent_id"]
+            daily_limit = agent["daily_limit"]
+            spent = 0
+            if redis_get_spend:
+                spent = await redis_get_spend(agent_id)
+            util = round((spent / daily_limit) * 100, 1) if daily_limit else 0
+            if util >= 85:
+                health = "red"
+            elif util >= 60:
+                health = "yellow"
+            else:
+                health = "green"
+            result.append({
+                **agent,
+                "current_daily_spend_paise": spent,
+                "utilisation_pct": util,
+                "budget_health": health,
+            })
+        return result

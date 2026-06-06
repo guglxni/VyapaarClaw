@@ -156,10 +156,14 @@ def detect_fraud_patterns(
     else:
         risk_level = "low"
 
+    # 5. Structural anomaly scoring (PyGOD-style graph metrics without heavy ML dep)
+    structural_score = _structural_anomaly_score(G, vendor_nodes)
+
     return {
         "patterns_found": len(findings),
         "risk_level": risk_level,
         "total_risk_score": total_risk,
+        "structural_anomaly_score": structural_score,
         "graph_stats": {
             "nodes": G.number_of_nodes(),
             "edges": G.number_of_edges(),
@@ -168,3 +172,53 @@ def detect_fraud_patterns(
         },
         "findings": findings,
     }
+
+
+def _structural_anomaly_score(G: nx.DiGraph, vendor_nodes: list[str]) -> float:
+    """Score graph structural anomalies using centrality and clustering (0–1)."""
+    if G.number_of_nodes() < 3:
+        return 0.0
+
+    try:
+        in_degrees = [G.in_degree(v) for v in vendor_nodes] if vendor_nodes else [0]
+        max_in = max(in_degrees) if in_degrees else 0
+        avg_in = sum(in_degrees) / len(in_degrees) if in_degrees else 0
+
+        # High max/avg ratio suggests hub vendor anomaly
+        hub_ratio = max_in / max(avg_in, 1)
+        score = min(1.0, hub_ratio / 5.0)
+
+        # Boost if graph has cycles
+        payment_edges = [(u, v) for u, v, d in G.edges(data=True) if d.get("relation") == "pays"]
+        if payment_edges:
+            pg = G.edge_subgraph(payment_edges)
+            if list(nx.simple_cycles(pg)):
+                score = min(1.0, score + 0.3)
+
+        return round(score, 3)
+    except (nx.NetworkXError, ZeroDivisionError):
+        return 0.0
+
+
+def detect_fraud_with_ml(
+    transactions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Enhanced fraud detection: graph patterns + optional PyGOD if installed."""
+    base = detect_fraud_patterns(transactions)
+
+    try:
+        from pygod.detector import DOMINANT  # type: ignore[import-untyped]
+        import torch  # type: ignore[import-untyped]
+    except ImportError:
+        base["ml_engine"] = "networkx"
+        return base
+
+    # PyGOD requires torch geometric graph — skip if insufficient data
+    if len(transactions) < 20:
+        base["ml_engine"] = "networkx"
+        base["ml_note"] = "Insufficient transactions for PyGOD (need 20+)"
+        return base
+
+    base["ml_engine"] = "pygod_available"
+    base["ml_note"] = "PyGOD installed; full GNN training requires batch pipeline (Phase 3)"
+    return base

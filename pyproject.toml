@@ -31,6 +31,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+cfo-advanced = [
+    "u8darts>=0.30.0",
+]
 dev = [
     "pytest>=9.0.0",
     "pytest-asyncio>=1.4.0",

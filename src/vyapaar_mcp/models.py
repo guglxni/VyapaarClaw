@@ -39,6 +39,9 @@ class ReasonCode(StrEnum):
     APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
     RATE_LIMITED = "RATE_LIMITED"
     ANOMALY_DETECTED = "ANOMALY_DETECTED"
+    GST_INVALID = "GST_INVALID"
+    IFSC_INVALID = "IFSC_INVALID"
+    SANCTIONS_MATCH = "SANCTIONS_MATCH"
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
 
@@ -91,6 +94,10 @@ class PayoutNotes(BaseModel):
     agent_id: str = Field(default="unknown", description="ID of the AI agent initiating payout")
     purpose: str = Field(default="", description="Purpose of the payment")
     vendor_url: str = Field(default="", description="Vendor URL for reputation check")
+    vendor_name: str = Field(default="", description="Legal or trading name of the vendor")
+    gstin: str = Field(default="", description="Vendor GSTIN for tax compliance checks")
+    pan: str = Field(default="", description="Vendor PAN for identity verification")
+    ifsc: str = Field(default="", description="Beneficiary IFSC (overrides fund_account if set)")
 
 
 class PayoutEntity(BaseModel):

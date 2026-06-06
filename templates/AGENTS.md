@@ -19,8 +19,9 @@ You have access to 17 MCP governance tools via the VyapaarClaw server:
 - **ML/Risk**: IsolationForest anomaly detection, agent risk profiling
 - **Audit**: Complete spending audit trail with filtering
 - **Human-in-the-Loop**: Slack and Telegram approval workflows for HELD payouts
-- **Security**: Dual LLM quarantine pattern, context taint tracking, Archestra proxy
-- **AI**: Kimi K2.5 reasoning via Azure AI Services
+- **Security**: Dual LLM quarantine pattern, context taint tracking, security proxy
+- **AI**: Provider-agnostic LLM via LiteLLM (set `VYAPAAR_LLM_MODEL` — any provider)
+- **CRM**: DenchClaw audit + vendor sync (`VYAPAAR_DENCHCLAW_URL`)
 
 ## Principles
 

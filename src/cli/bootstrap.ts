@@ -130,6 +130,34 @@ export async function runBootstrap(): Promise<void> {
           placeholder: "Leave empty to auto-generate",
           initialValue: "",
         }),
+      llm_model: () =>
+        p.text({
+          message: "LLM model (LiteLLM format — any provider)",
+          placeholder: "e.g. gpt-4o, azure/kimi-k2.5, anthropic/claude-sonnet-4",
+          initialValue: "gpt-4o",
+        }),
+      llm_api_key: () =>
+        p.password({
+          message: "LLM API key (optional — leave empty for local/Ollama)",
+          initialValue: "",
+        }),
+      llm_base_url: () =>
+        p.text({
+          message: "LLM base URL (optional — for Azure, Ollama, custom endpoints)",
+          placeholder: "Leave empty for provider default",
+          initialValue: "",
+        }),
+      delegation_llm_model: () =>
+        p.text({
+          message: "Delegation model for sub-agents (cheaper model recommended)",
+          placeholder: "e.g. openai/gpt-4o-mini",
+          initialValue: "openai/gpt-4o-mini",
+        }),
+      denchclaw_enabled: () =>
+        p.confirm({
+          message: "Enable DenchClaw CRM sync for audit logs and vendors?",
+          initialValue: true,
+        }),
     },
     {
       onCancel: () => {
@@ -176,6 +204,21 @@ export async function runBootstrap(): Promise<void> {
     "",
     `# Webhook hooks token for Razorpay -> OpenClaw`,
     `VYAPAAR_HOOKS_TOKEN=${hooksToken}`,
+    "",
+    "# LLM (LiteLLM — provider-agnostic, user-configurable)",
+    `VYAPAAR_LLM_MODEL=${credentials.llm_model}`,
+    credentials.llm_api_key
+      ? `VYAPAAR_LLM_API_KEY=${credentials.llm_api_key}`
+      : "# VYAPAAR_LLM_API_KEY=",
+    credentials.llm_base_url
+      ? `VYAPAAR_LLM_BASE_URL=${credentials.llm_base_url}`
+      : "# VYAPAAR_LLM_BASE_URL=",
+    `VYAPAAR_DELEGATION_LLM_MODEL=${credentials.delegation_llm_model}`,
+    "",
+    "# DenchClaw CRM (https://github.com/DenchHQ/DenchClaw)",
+    `VYAPAAR_DENCHCLAW_ENABLED=${credentials.denchclaw_enabled ? "true" : "false"}`,
+    "VYAPAAR_DENCHCLAW_URL=http://localhost:3100",
+    "VYAPAAR_DENCHCLAW_SYNC_AUTO=true",
   ].join("\n");
 
   writeFileSync(ENV_PATH, envContent);
@@ -214,7 +257,10 @@ export async function runBootstrap(): Promise<void> {
   const openclawConfig: Record<string, unknown> = {
     agents: {
       defaults: {
-        model: { primary: "azure/kimi-k2.5", fallbacks: ["openai/gpt-4o"] },
+        model: {
+          primary: `\${VYAPAAR_LLM_MODEL}`,
+          fallbacks: [`\${VYAPAAR_DELEGATION_LLM_MODEL}`],
+        },
         workspace: WORKSPACE_DIR,
       },
     },
@@ -293,7 +339,7 @@ export async function runBootstrap(): Promise<void> {
       spawn: {
         enabled: true,
         maxConcurrent: 3,
-        defaults: { model: "openai/gpt-4o-mini", timeout: 120 },
+        defaults: { model: `\${VYAPAAR_DELEGATION_LLM_MODEL}`, timeout: 120 },
       },
     },
     tools: {
@@ -308,6 +354,18 @@ export async function runBootstrap(): Promise<void> {
   writeFileSync(CONFIG_PATH, JSON.stringify(openclawConfig, null, 2));
 
   s.stop("Workspace created");
+
+  if (credentials.denchclaw_enabled) {
+    const denchOk = await p.confirm({
+      message: "Install DenchClaw CRM now? (npx denchclaw@latest)",
+      initialValue: false,
+    });
+    if (denchOk && checkBinary("npx")) {
+      p.log.info("Run in a separate terminal: npx denchclaw@latest");
+      p.log.info("DenchClaw UI: http://localhost:3100");
+      p.log.info("VyapaarClaw auto-syncs audit + vendor records when both are running.");
+    }
+  }
 
   p.log.info(`Workspace: ${chalk.cyan(WORKSPACE_DIR)}`);
   p.log.info(`Config:    ${chalk.cyan(CONFIG_PATH)}`);

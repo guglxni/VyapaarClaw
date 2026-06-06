@@ -156,3 +156,115 @@ def make_telegram_callback_endpoint(
 
     telegram_callback_endpoint.__name__ = "telegram_callback_endpoint"
     return telegram_callback_endpoint
+
+
+def make_dashboard_endpoint(
+    get_postgres: Callable[[], Any],
+    get_redis: Callable[[], Any],
+) -> Callable[[Request], Awaitable[JSONResponse]]:
+    """Combined dashboard data for web UI."""
+
+    async def dashboard_endpoint(request: Request) -> JSONResponse:
+        postgres = get_postgres()
+        redis = get_redis()
+        if not postgres:
+            return JSONResponse({"error": "postgres unavailable"}, status_code=503)
+
+        try:
+            redis_get = redis.get_daily_spend if redis else None
+            agents = await postgres.get_dashboard_agents_with_spend(redis_get)
+            compliance = await postgres.get_compliance_stats(period_days=7)
+            logs = await postgres.get_audit_logs(limit=20)
+            recent = [
+                {
+                    "payout_id": log.payout_id,
+                    "agent_id": log.agent_id,
+                    "amount": log.amount,
+                    "decision": log.decision.value,
+                    "reason_code": log.reason_code.value,
+                    "reason_detail": log.reason_detail,
+                    "vendor_name": log.vendor_name,
+                    "created_at": log.created_at.isoformat() if log.created_at else None,
+                }
+                for log in logs
+            ]
+            high_risk = []
+            for aid, breakdown in compliance.get("agent_breakdown", {}).items():
+                total = sum(d.get("count", 0) for d in breakdown.values())
+                rejected = breakdown.get("REJECTED", {}).get("count", 0)
+                if total > 0 and rejected / total > 0.2:
+                    high_risk.append({
+                        "agent_id": aid,
+                        "rejection_rate_pct": round(rejected / total * 100, 1),
+                        "total_decisions": total,
+                    })
+
+            return JSONResponse({
+                "agents": agents,
+                "compliance": {
+                    "total_decisions": compliance.get("total_decisions", 0),
+                    "decisions": compliance.get("decisions", {}),
+                    "top_rejection_reasons": compliance.get("top_rejection_reasons", []),
+                    "high_risk_agents": high_risk,
+                },
+                "recent_decisions": recent,
+                "mcp_connected": True,
+            })
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    dashboard_endpoint.__name__ = "dashboard_endpoint"
+    return dashboard_endpoint
+
+
+def make_agents_endpoint(
+    get_postgres: Callable[[], Any],
+    get_redis: Callable[[], Any],
+) -> Callable[[Request], Awaitable[JSONResponse]]:
+    """Agent list with budget utilisation."""
+
+    async def agents_endpoint(request: Request) -> JSONResponse:
+        postgres = get_postgres()
+        redis = get_redis()
+        if not postgres:
+            return JSONResponse({"error": "postgres unavailable"}, status_code=503)
+        redis_get = redis.get_daily_spend if redis else None
+        agents = await postgres.get_dashboard_agents_with_spend(redis_get)
+        return JSONResponse({"agents": agents})
+
+    agents_endpoint.__name__ = "agents_endpoint"
+    return agents_endpoint
+
+
+def make_audit_endpoint(
+    get_postgres: Callable[[], Any],
+) -> Callable[[Request], Awaitable[JSONResponse]]:
+    """Recent audit log entries."""
+
+    async def audit_endpoint(request: Request) -> JSONResponse:
+        postgres = get_postgres()
+        if not postgres:
+            return JSONResponse({"error": "postgres unavailable"}, status_code=503)
+        limit = int(request.query_params.get("limit", "50"))
+        agent_id = request.query_params.get("agent_id") or None
+        logs = await postgres.get_audit_logs(agent_id=agent_id, limit=limit)
+        return JSONResponse({
+            "entries": [
+                {
+                    "payout_id": log.payout_id,
+                    "agent_id": log.agent_id,
+                    "amount": log.amount,
+                    "decision": log.decision.value,
+                    "reason_code": log.reason_code.value,
+                    "reason_detail": log.reason_detail,
+                    "vendor_name": log.vendor_name,
+                    "vendor_url": log.vendor_url,
+                    "processing_ms": log.processing_ms,
+                    "created_at": log.created_at.isoformat() if log.created_at else None,
+                }
+                for log in logs
+            ],
+        })
+
+    audit_endpoint.__name__ = "audit_endpoint"
+    return audit_endpoint

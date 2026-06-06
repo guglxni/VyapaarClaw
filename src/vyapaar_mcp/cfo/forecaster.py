@@ -18,17 +18,25 @@ def forecast_burn_rate(
     daily_spends_paise: list[int],
     budget_remaining_paise: int,
     forecast_days: int = 30,
+    prefer_darts: bool = True,
 ) -> dict[str, Any]:
     """Estimate budget runway and forecast future spending.
 
-    Uses exponential weighted moving average for trend detection
-    and linear projection for runway estimation.
+    Uses Darts ExponentialSmoothing when available (Phase 3), otherwise
+    numpy EWMA + linear regression baseline.
 
     Args:
         daily_spends_paise: Historical daily spend in paise (most recent last).
         budget_remaining_paise: Current remaining budget in paise.
         forecast_days: Number of days to project forward.
+        prefer_darts: Try Darts engine first when installed.
     """
+    if prefer_darts:
+        from vyapaar_mcp.cfo.forecaster_darts import forecast_with_darts
+        darts_result = forecast_with_darts(daily_spends_paise, budget_remaining_paise, forecast_days)
+        if darts_result is not None:
+            return darts_result
+
     if not daily_spends_paise:
         return {
             "error": "No spending data provided",
@@ -96,6 +104,7 @@ def forecast_burn_rate(
         trend = "stable"
 
     return {
+        "engine": "numpy",
         "avg_daily_spend_paise": int(avg_daily),
         "trend_daily_spend_paise": int(trend_daily),
         "trend_direction": trend,

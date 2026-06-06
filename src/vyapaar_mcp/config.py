@@ -155,6 +155,86 @@ class VyapaarConfig(BaseSettings):
         description="Risk score threshold (0-1) above which transactions are flagged as anomalous",
     )
 
+    # --- Governance Pipeline (6-layer enforcement) ---
+    governance_check_gstin: bool = Field(
+        default=True,
+        description="Auto-reject payouts with invalid GSTIN format in notes",
+    )
+    governance_check_ifsc: bool = Field(
+        default=True,
+        description="Auto-reject payouts with invalid IFSC format",
+    )
+    governance_check_sanctions: bool = Field(
+        default=True,
+        description="Auto-reject payouts when vendor matches sanctions watchlist",
+    )
+    governance_check_anomaly: bool = Field(
+        default=True,
+        description="Hold payouts flagged as anomalous by ML scorer",
+    )
+    governance_sanctions_reject_score: float = Field(
+        default=0.8,
+        description="OpenSanctions match score above which payout is rejected",
+    )
+    governance_anomaly_hold: bool = Field(
+        default=True,
+        description="Hold (vs reject) anomalous transactions for human review",
+    )
+    governance_live_gst: bool = Field(
+        default=False,
+        description="Enable live GSTIN verification (Browserwire/GSP) in governance pipeline",
+    )
+
+    # --- Exa Search (vendor research / adverse media) ---
+    exa_api_key: str = Field(
+        default="",
+        description="Exa API key for vendor research and adverse media screening",
+    )
+
+    # --- Browserwire (government portal APIs) ---
+    browserwire_url: str = Field(
+        default="",
+        description="Browserwire server base URL for GST/MCA portal manifests",
+    )
+    browserwire_api_key: str = Field(
+        default="",
+        description="Browserwire API key (if required by deployment)",
+    )
+
+    # --- GSP GST API (production tier) ---
+    gsp_api_url: str = Field(
+        default="",
+        description="GSP provider API base URL (Cashfree Secure ID, ClearTax, etc.)",
+    )
+    gsp_api_key: str = Field(
+        default="",
+        description="GSP API key for live GSTIN verification",
+    )
+
+    # --- HyperAPI (invoice OCR) ---
+    hyperapi_api_key: str = Field(
+        default="",
+        description="HyperAPI key for invoice OCR and document extraction",
+    )
+    hyperapi_base_url: str = Field(
+        default="https://api.hyperbots.com",
+        description="HyperAPI base URL",
+    )
+
+    # --- DenchClaw CRM Integration ---
+    denchclaw_url: str = Field(
+        default="http://localhost:3100",
+        description="DenchClaw web UI URL for CRM object sync",
+    )
+    denchclaw_enabled: bool = Field(
+        default=True,
+        description="Enable sync of audit logs and vendors to DenchClaw CRM",
+    )
+    denchclaw_sync_auto: bool = Field(
+        default=True,
+        description="Auto-sync governance decisions to DenchClaw on each audit write",
+    )
+
     # ============================================
     # Generic LLM Configuration (LiteLLM)
     # ============================================
@@ -184,6 +264,10 @@ class VyapaarConfig(BaseSettings):
         default=2000,
         description="Default max tokens for chat completions",
     )
+    delegation_llm_model: str = Field(
+        default="",
+        description="LiteLLM model for sub-agent delegation (defaults to llm_model or openai/gpt-4o-mini)",
+    )
 
     # ============================================
     # Legacy Azure AI Services — backward compat
@@ -192,7 +276,7 @@ class VyapaarConfig(BaseSettings):
     # These fields are auto-mapped by _migrate_legacy_llm_config.
 
     azure_openai_endpoint: str = Field(
-        default="https://vyapaar.services.ai.azure.com/models",
+        default="",
         description="DEPRECATED: use VYAPAAR_LLM_BASE_URL. Azure AI Services endpoint.",
     )
     azure_openai_api_key: str = Field(
@@ -200,7 +284,7 @@ class VyapaarConfig(BaseSettings):
         description="DEPRECATED: use VYAPAAR_LLM_API_KEY. Azure AI API key.",
     )
     azure_openai_deployment: str = Field(
-        default="kimi-k2.5",
+        default="",
         description="DEPRECATED: use VYAPAAR_LLM_MODEL. Azure model deployment name.",
     )
     azure_foundry_project_id: str = Field(
@@ -264,7 +348,7 @@ class VyapaarConfig(BaseSettings):
 
     # --- Security LLM Configuration (Generic) ---
     security_llm_model: str = Field(
-        default="openai/gpt-4o-mini",
+        default="",
         description="Security validation LLM model identifier (LiteLLM format)",
     )
     security_llm_api_key: str = Field(
@@ -314,9 +398,15 @@ class VyapaarConfig(BaseSettings):
         if not self.llm_api_version and self.azure_openai_api_version:
             self.llm_api_version = self.azure_openai_api_version
 
+        # --- Delegation LLM default ---
+        if not self.delegation_llm_model and self.llm_model:
+            self.delegation_llm_model = self.llm_model
+        elif not self.delegation_llm_model:
+            self.delegation_llm_model = "openai/gpt-4o-mini"
+
         # --- Security LLM migration ---
         if not self.security_llm_model:
-            self.security_llm_model = "openai/gpt-4o-mini"
+            self.security_llm_model = self.delegation_llm_model
         elif "/" not in self.security_llm_model:
             # Old plain model names (e.g. "gpt-4o-mini") default to openai provider
             self.security_llm_model = f"openai/{self.security_llm_model}"

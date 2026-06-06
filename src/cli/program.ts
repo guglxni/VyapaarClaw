@@ -4,12 +4,6 @@ import { spawn, execSync, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import {
-  isWebRunning,
-  startWebServer,
-  stopWebServer,
-  DEFAULT_WEB_PORT,
-} from "./web-runtime.js";
 
 const PROFILE = "vyapaar";
 const WORKSPACE_ROOT = join(homedir(), ".openclaw", "profiles", PROFILE);
@@ -63,61 +57,35 @@ export function buildProgram(): Command {
 
   program
     .command("start")
-    .description("Start the VyapaarClaw MCP server, web UI, and OpenClaw gateway")
-    .option("--mcp-only", "Start only the MCP server (no gateway or web UI)")
-    .option("--no-web", "Skip starting the web UI")
-    .option("--web-port <port>", "Web UI port", String(DEFAULT_WEB_PORT))
+    .description("Start the VyapaarClaw MCP server and Agent")
+    .option("--mcp-only", "Start only the MCP server (no agent)")
     .action(async (opts) => {
       const mcpChild = startMcpServer();
 
       if (!opts.mcpOnly) {
         await new Promise<void>((r) => setTimeout(r, 2000));
 
-        // Start web UI
-        if (opts.web !== false) {
-          const webPort = parseInt(opts.webPort ?? String(DEFAULT_WEB_PORT), 10);
-          console.log(chalk.yellow(`Starting web UI on port ${webPort}...`));
-          const webResult = startWebServer(webPort);
-          if (webResult.started) {
-            console.log(
-              chalk.green(`  Web UI:  http://localhost:${webPort}`)
-            );
-          } else if (webResult.reason === "already-running") {
-            console.log(
-              chalk.dim(`  Web UI:  already running on port ${webResult.port}`)
-            );
-          } else {
-            console.log(
-              chalk.dim("  Web UI:  not available (run pnpm web:build first)")
-            );
-          }
-        }
-
         console.log(
-          chalk.yellow(`Starting OpenClaw gateway (profile: ${PROFILE})...`)
+          chalk.cyan(`\nStarting VyapaarClaw Agent (Profile: ${PROFILE})...`)
         );
 
         try {
+          // Use npx to ensure it resolves the local openclaw dependency
           const oc = spawn(
-            "openclaw",
-            ["--profile", PROFILE, "gateway", "--verbose"],
+            "npx",
+            ["openclaw", "--profile", PROFILE, "gateway"],
             { stdio: "inherit", env: process.env }
           );
 
           oc.on("error", (err) => {
-            if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-              console.log(
-                chalk.dim(
-                  "OpenClaw not installed. MCP server running standalone at http://localhost:8000"
-                )
-              );
-            }
-          });
-
+            console.log(
+              chalk.red(
+                `Failed to start VyapaarClaw Agent: ${err.message}`
+              )
+            );
           const shutdown = () => {
             mcpChild.kill();
             oc.kill();
-            stopWebServer();
             process.exit(0);
           };
           process.on("SIGINT", shutdown);
@@ -126,14 +94,13 @@ export function buildProgram(): Command {
           await new Promise<void>((resolve) => {
             oc.once("exit", () => {
               mcpChild.kill();
-              stopWebServer();
               resolve();
             });
           });
         } catch {
           console.log(
             chalk.dim(
-              "OpenClaw gateway not started. MCP server running at http://localhost:8000"
+              "VyapaarClaw Agent failed to start."
             )
           );
           await new Promise<void>((resolve) => {

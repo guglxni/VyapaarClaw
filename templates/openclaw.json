@@ -3,8 +3,8 @@
   "agents": {
     "defaults": {
       "model": {
-        "primary": "azure/kimi-k2.5",
-        "fallbacks": ["openai/gpt-4o"]
+        "primary": "${VYAPAAR_LLM_MODEL}",
+        "fallbacks": ["${VYAPAAR_DELEGATION_LLM_MODEL}"]
       },
       "workspace": "~/.openclaw/profiles/vyapaar/workspace"
     }
@@ -82,12 +82,18 @@
       }
     }
   },
+  "gateway": {
+    "controlUi": {
+      "root": "./vyapaar-ui",
+      "basePath": "/"
+    }
+  },
   "sessions": {
     "spawn": {
       "enabled": true,
       "maxConcurrent": 3,
       "defaults": {
-        "model": "openai/gpt-4o-mini",
+        "model": "${VYAPAAR_DELEGATION_LLM_MODEL}",
         "timeout": 120
       }
     }

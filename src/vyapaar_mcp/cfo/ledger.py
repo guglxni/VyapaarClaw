@@ -14,6 +14,8 @@ import uuid
 from enum import Enum
 from typing import Any
 
+# postgres client type avoided at import — passed at runtime
+
 
 class AccountType(str, Enum):
     ASSET = "asset"
@@ -279,3 +281,36 @@ _ledger = Ledger()
 def get_ledger() -> Ledger:
     """Return the module-level ledger instance."""
     return _ledger
+
+
+async def persist_journal_entry(
+    postgres: Any,
+    journal_entry: dict[str, Any],
+) -> None:
+    """Write journal lines to PostgreSQL ledger_entries table."""
+    if postgres is None:
+        return
+    pg_lines = []
+    for line in journal_entry.get("lines", []):
+        account_code = line["account"]
+        account_name = _ledger.chart.get(account_code, {}).get("name", account_code)
+        if line["type"] == "debit":
+            pg_lines.append({
+                "account_code": account_code,
+                "account_name": account_name,
+                "debit_paise": line["amount_paise"],
+                "credit_paise": 0,
+            })
+        else:
+            pg_lines.append({
+                "account_code": account_code,
+                "account_name": account_name,
+                "debit_paise": 0,
+                "credit_paise": line["amount_paise"],
+            })
+    await postgres.write_ledger_entries(
+        reference=journal_entry.get("reference", ""),
+        description=journal_entry.get("description", ""),
+        entries=pg_lines,
+        metadata={"entry_id": journal_entry.get("id")},
+    )

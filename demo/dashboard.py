@@ -113,8 +113,8 @@ with st.sidebar:
             "ML": ["anomaly", "risk_profile"],
             "Budget": ["budget", "policy"],
             "Human": ["slack_action", "telegram_action"],
-            "AI": ["azure_chat", "taint_check"],
-            "Ops": ["health", "metrics", "audit", "archestra"],
+            "AI": ["llm_chat", "taint_check"],
+            "Ops": ["health", "metrics", "audit", "security"],
         }
         for group, tools in tool_groups.items():
             st.markdown(f"**{group}** · {len(tools)} tools")

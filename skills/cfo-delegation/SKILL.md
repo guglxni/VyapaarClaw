@@ -40,9 +40,10 @@ Use sessions_spawn to create a sub-agent with this task:
 Steps:
 1. Call check_vendor_reputation('{vendor_url}') to check Safe Browsing
 2. Call verify_vendor_entity('{vendor_name}') to check GLEIF registration
-3. Search the web for '{vendor_name}' to find their official website,
-   any fraud reports, or negative press
-4. Check if the domain registration is recent (suspicious if < 6 months)
+3. Call research_vendor('{vendor_name}') for Exa-powered company research
+4. Call screen_adverse_media('{vendor_name}') for fraud/lawsuit signals
+5. Call verify_gstin_live('{gstin}', '{vendor_name}') if GSTIN is provided
+6. Check if the domain registration is recent (suspicious if < 6 months)
 
 Return a structured report:
 - Vendor Name: {vendor_name}
@@ -52,7 +53,7 @@ Return a structured report:
 - Overall Assessment: TRUSTED / NEEDS_REVIEW / SUSPICIOUS
 - Recommendation: specific action for the CFO"
 
-Model: Use gpt-4o-mini (this is research, not critical reasoning)
+Model: Use the configured delegation model (`VYAPAAR_DELEGATION_LLM_MODEL`)
 ```
 
 **After receiving the sub-agent's report**:
@@ -95,7 +96,7 @@ Return a structured investigation report:
 - Verdict: FALSE_POSITIVE / GENUINE_ANOMALY / NEEDS_HUMAN_REVIEW
 - Recommended Action: specific next steps"
 
-Model: Use gpt-4o-mini
+Model: Use the configured delegation model (`VYAPAAR_DELEGATION_LLM_MODEL`)
 ```
 
 **After receiving the investigation report**:
@@ -137,7 +138,7 @@ Steps:
 Format as clean, professional text suitable for Telegram delivery.
 Use Indian number formatting (lakhs/crores) for amounts."
 
-Model: Use gpt-4o-mini (data aggregation, not critical reasoning)
+Model: Use the configured delegation model (`VYAPAAR_DELEGATION_LLM_MODEL`) (data aggregation, not critical reasoning)
 ```
 
 **After receiving the report**: deliver to Telegram and archive.

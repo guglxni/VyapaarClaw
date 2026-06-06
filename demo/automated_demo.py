@@ -217,7 +217,7 @@ async def run_demo() -> None:
 
   {CYAN}Next Steps:{RESET}
      • Connect via Claude Desktop (MCP stdio transport)
-     • Deploy to Archestra Platform (SSE transport)
+     • Deploy via SSE transport for remote access
      • Run Streamlit dashboard: {DIM}streamlit run demo/dashboard.py{RESET}
 
   {DIM}Repository: https://github.com/guglxni/vyapaarclaw

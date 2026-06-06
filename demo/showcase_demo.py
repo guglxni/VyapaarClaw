@@ -146,7 +146,8 @@ async def run_showcase() -> None:
     postgres_ok = await postgres.ping()
     print(f"  {GREEN if redis_ok else RED}Redis:      {'Connected ✓' if redis_ok else 'OFFLINE ✗'}{RESET}")
     print(f"  {GREEN if postgres_ok else RED}PostgreSQL: {'Connected ✓' if postgres_ok else 'OFFLINE ✗'}{RESET}")
-    print(f"  {GREEN}Kimi K2.5:  {'Configured ✓' if config.azure_openai_api_key else 'Key pending'}{RESET}")
+    llm_ok = bool(config.llm_model and (config.llm_api_key or config.llm_base_url))
+    print(f"  {GREEN}LLM Model:  {config.llm_model or 'not set'} {'✓' if llm_ok else '(configure VYAPAAR_LLM_*)'}{RESET}")
 
     if not (redis_ok and postgres_ok):
         print(f"\n{RED}Cannot proceed without infrastructure.{RESET}")
@@ -172,8 +173,8 @@ async def run_showcase() -> None:
         ("handle_telegram_action", "Human", "Approve/reject from Telegram"),
         ("check_context_taint", "Sec", "Dual LLM taint tracker"),
         ("validate_tool_call_security", "Sec", "Quarantine validation gate"),
-        ("azure_chat", "AI", "Kimi K2.5 chat completions"),
-        ("get_archestra_status", "Sec", "Deterministic policy status"),
+        ("llm_chat", "AI", "LLM chat completions"),
+        ("get_security_status", "Sec", "Deterministic policy status"),
         ("health_check", "Ops", "Service status"),
         ("get_metrics", "Ops", "Prometheus metrics"),
     ]

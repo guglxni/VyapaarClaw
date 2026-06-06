@@ -36,8 +36,6 @@ htmlcov/
 .qwen/
 .gemini/
 .antigravity/
-archestra/
-archestra.skill
 .specstory/
 .cursorindexingignore
 
@@ -100,3 +98,12 @@ OPENCLAW_PREP_CHECKPOINT.md
 
 # Internal docs
 docs/internal/
+
+# Generated analysis artifacts (do not commit)
+graphify-out/
+security-results/
+
+# One-off local fix scripts
+fix_*.py
+launch.py
+pin_actions.py

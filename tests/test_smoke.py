@@ -35,34 +35,52 @@ from vyapaar_mcp.models import (
 
 
 class TestConfigSmoke:
-    """Verify config loads correctly with Kimi K2.5 defaults."""
+    """Verify config is LLM-agnostic with no hardcoded provider defaults."""
 
-    def test_kimi_k2_5_default_model(self) -> None:
+    def test_no_hardcoded_llm_defaults(self) -> None:
         config = VyapaarConfig(
             razorpay_key_id="rzp_test_xxx",
             razorpay_key_secret="secret",
             google_safe_browsing_key="gsb",
             postgres_dsn="postgresql://test:test@localhost/test",
+            llm_model="",
+            azure_openai_deployment="",
+            azure_openai_api_key="",
+            azure_openai_endpoint="",
         )
-        assert config.azure_openai_deployment == "kimi-k2.5"
+        assert config.llm_model == ""
+        assert config.azure_openai_deployment == ""
+        assert config.azure_openai_endpoint == ""
 
-    def test_kimi_k2_5_default_api_version(self) -> None:
+    def test_legacy_azure_migration_still_works(self) -> None:
         config = VyapaarConfig(
             razorpay_key_id="rzp_test_xxx",
             razorpay_key_secret="secret",
             google_safe_browsing_key="gsb",
             postgres_dsn="postgresql://test:test@localhost/test",
+            llm_model="",
+            llm_api_key="",
+            llm_base_url="",
+            llm_api_version="",
+            azure_openai_deployment="kimi-k2.5",
+            azure_openai_api_key="key",
+            azure_openai_endpoint="https://example.azure.com",
         )
-        assert config.azure_openai_api_version == "2024-05-01-preview"
+        assert config.llm_model == "azure/kimi-k2.5"
+        assert config.llm_api_key == "key"
 
-    def test_kimi_k2_5_default_endpoint(self) -> None:
+    def test_delegation_model_defaults_when_unset(self) -> None:
         config = VyapaarConfig(
             razorpay_key_id="rzp_test_xxx",
             razorpay_key_secret="secret",
             google_safe_browsing_key="gsb",
             postgres_dsn="postgresql://test:test@localhost/test",
+            llm_model="",
+            azure_openai_deployment="",
+            azure_openai_api_key="",
+            azure_openai_endpoint="",
         )
-        assert "services.ai.azure.com" in config.azure_openai_endpoint
+        assert config.delegation_llm_model == "openai/gpt-4o-mini"
 
 
 # ================================================================

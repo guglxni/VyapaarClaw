@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from vyapaar_mcp.config import VyapaarConfig
@@ -50,6 +50,9 @@ class ServerState:
     telegram: TelegramNotifier | None = None
     llm_client: LLMClient | None = None
     tool_validator: ToolCallValidator | None = None
+    exa_client: Any = None
+    gst_chain: Any = None
+    denchclaw: Any = None
 
 
 state = ServerState()

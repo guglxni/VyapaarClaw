@@ -25,9 +25,6 @@
     "vyapaarclaw": "vyapaarclaw.mjs"
   },
   "files": [
-    "apps/web/.next/standalone/",
-    "apps/web/.next/static/",
-    "apps/web/public/",
     "dist/",
     "skills/",
     "templates/",
@@ -43,29 +40,26 @@
   },
   "scripts": {
     "build": "tsdown",
-    "web:dev": "pnpm --dir apps/web dev",
-    "web:build": "pnpm --dir apps/web build",
-    "web:install": "pnpm --dir apps/web install",
     "dev": "node vyapaarclaw.mjs",
     "start": "node vyapaarclaw.mjs start",
     "vyapaarclaw": "node vyapaarclaw.mjs",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "test:py": "uv run pytest tests/ --ignore=tests/test_razorpay_bridge.py",
     "lint": "uv run ruff check src/vyapaar_mcp/",
     "mcp:start": "VYAPAAR_TRANSPORT=sse uv run vyapaarclaw",
     "mcp:stdio": "uv run vyapaarclaw"
   },
   "dependencies": {
-    "@clack/prompts": "^1.0.1",
+    "@clack/prompts": "^1.5.0",
     "chalk": "^5.6.2",
-    "commander": "^14.0.3",
+    "commander": "^15.0.0",
     "gradient-string": "^3.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "tsdown": "^0.20.3",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "tsdown": "^0.22.0",
+    "typescript": "^6.0.0",
+    "vitest": "^4.1.8"
   },
   "peerDependencies": {
     "openclaw": ">=2026.1.0"

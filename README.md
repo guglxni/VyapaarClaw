@@ -9,8 +9,10 @@ VyapaarClaw is an [OpenClaw](https://openclaw.ai) framework that transforms AI a
 
 ```
 npx vyapaarclaw bootstrap   # Set up credentials & OpenClaw profile
-npx vyapaarclaw start        # Launch MCP server + Web UI + OpenClaw gateway
+npx vyapaarclaw start        # Launch MCP server + OpenClaw gateway
 ```
+
+> **Security:** Never commit `.env`. Copy from `.env.example` and keep secrets local only (OWASP secrets management).
 
 ---
 
@@ -22,58 +24,51 @@ Three-layer AI CFO architecture: **KNOW** (intelligence) → **GUARD** (governan
 
 ## Features
 
-### 37 MCP Tools (25 Governance + 12 CFO Intelligence)
+### MCP Tools (Governance + CFO Intelligence)
 
 | Category | Tools |
 |----------|-------|
 | **Budget Control** | `get_agent_budget`, `set_agent_policy`, `get_daily_spend`, `reallocate_budget` |
-| **Vendor Verification** | `check_vendor_reputation`, `verify_vendor_entity`, `get_vendor_trust_score` |
-| **Risk & Scoring** | `get_risk_score`, `evaluate_payout`, `detect_anomaly` |
+| **Vendor Verification** | `check_vendor_reputation`, `verify_vendor_entity`, `get_vendor_trust_score`, `screen_vendor_sanctions` |
+| **Risk & Scoring** | `get_risk_score`, `evaluate_payout`, `detect_anomaly`, `score_transaction_risk` |
 | **Compliance** | `generate_compliance_report`, `get_spending_trends`, `get_financial_calendar` |
 | **Monitoring** | `list_agents`, `forecast_cash_flow`, `get_audit_log` |
 | **Payments** | `create_payout`, `get_payout_status`, `process_webhook` |
 | **Notifications** | `send_slack_approval`, `send_telegram_alert` |
-| **🆕 India Tax** | `validate_gstin`, `calculate_gst`, `check_tds` |
-| **🆕 Banking** | `validate_bank_account` (IFSC/account validation) |
-| **🆕 Multi-Currency** | `convert_currency` (Frankfurter FX, ECB data) |
-| **🆕 Calendar** | `get_indian_financial_calendar` (holidays, deadlines, T+N settlement) |
-| **🆕 Categorization** | `categorize_transaction` (auto-tagging spending categories) |
-| **🆕 Forecasting** | `forecast_budget_runway` (EWMA trend, runway days, severity) |
-| **🆕 Accounting** | `track_payout_in_ledger`, `get_trial_balance`, `get_income_statement` |
-| **🆕 Reports** | `generate_compliance_report` (PDF with charts) |
-| **🆕 Fraud** | `detect_fraud_network` (graph-based: shared PAN, circular payments) |
-| **🆕 Contracts** | `analyze_contract` (payment terms, penalty clauses, SLA) |
-| **🆕 Sanctions** | `screen_vendor_sanctions` (OpenSanctions watchlists) |
-| **🆕 Workflow** | `manage_payout_workflow` (formal state machine approvals) |
+| **India Tax** | `validate_gstin`, `verify_gstin_live`, `calculate_gst`, `check_tds` |
+| **Banking** | `validate_bank_account` (IFSC/account validation) |
+| **Research** | `research_vendor`, `screen_adverse_media` (Exa) |
+| **Forecasting** | `forecast_budget_runway`, `forecast_cash_flow` |
+| **Accounting** | `track_payout_in_ledger`, `get_trial_balance`, `get_income_statement` |
+| **Fraud** | `detect_fraud_network`, `detect_fraud_network_ml` |
+| **Workflow** | `manage_payout_workflow` |
+| **CRM** | `get_denchclaw_status`, `sync_audit_to_denchclaw` |
 
 ### Web Dashboard
 
-A Next.js application providing:
+Static control UI served via OpenClaw gateway (`vyapaar-ui/`):
 
-- **Dashboard** — Budget utilisation bars, decision stats, risk heatmap
-- **Chat** — Conversational interface to the AI CFO
-- **Agents** — Agent policies, trust tiers, budget health
-- **Audit Log** — Searchable governance decision history *(Driven by robust CRM Data Tables integrated directly from DenchClaw)*
-- **Cron Jobs** — Scheduled autonomous operations
+- **Dashboard** — Budget utilisation, decision stats, agent health (live MCP `/api/v1/dashboard`)
+- **Audit Log** — Governance decisions synced to [DenchClaw](https://github.com/DenchHQ/DenchClaw) CRM
+- **Agents / Chat / Cron** — OpenClaw-native surfaces
 
 ### OpenClaw Integration
 
 - **Cron Jobs** — Morning financial brief, budget alarms, weekly compliance reports
 - **Webhooks** — Razorpay payment event processing
 - **Multi-Agent Delegation** — Spawn sub-agents for vendor due diligence
-- **Canvas Dashboard** — Real-time financial visualisations
 - **Skills** — CFO, delegation, and canvas skills for OpenClaw agents
 
 ### Governance Pipeline
 
-Every transaction passes through a 6-layer verification:
+Every transaction passes through layered verification:
 
 1. **Webhook Signature Verification** — Razorpay HMAC validation
 2. **Agent Policy Enforcement** — Daily limits, per-txn limits, domain restrictions
-3. **Vendor Reputation Check** — Google Safe Browsing threat analysis
-4. **Entity Verification** — GLEIF legal entity lookup
+3. **GSTIN / IFSC Format Checks** — Indian compliance validation
+4. **Vendor Reputation** — Google Safe Browsing + GLEIF + sanctions screening
 5. **ML Anomaly Detection** — Isolation Forest on transaction patterns
-6. **Risk Scoring** — Composite score with automatic decision routing
+6. **Risk Scoring** — Composite trust score with automatic decision routing
 
 ---
 
@@ -82,15 +77,14 @@ Every transaction passes through a 6-layer verification:
 ### Prerequisites
 
 - **Python 3.12+** and [uv](https://docs.astral.sh/uv/)
-- **Node.js 22+** and pnpm
+- **Node.js 22+**
 - **Redis** — Budget tracking and caching
 - **PostgreSQL** — Audit logs and policies
-- **OpenClaw** — Required core framework for the AI agents, gateway, Slack integration, and autonomous cron features
+- **OpenClaw** — Agent gateway, cron, and skills
 
 ### Installation
 
 ```bash
-# Clone and install
 git clone https://github.com/guglxni/VyapaarClaw.git
 cd VyapaarClaw
 
@@ -100,46 +94,41 @@ uv sync --dev
 # Install Node.js dependencies
 pnpm install --no-frozen-lockfile
 
-# Build the CLI and web UI
+# Build the CLI
 pnpm build
-pnpm web:build
 
-# Run the bootstrap wizard
+# Configure environment (never commit .env)
+cp .env.example .env
+# Edit .env with your keys
+
+# Run the bootstrap wizard (optional — sets up OpenClaw profile)
 node vyapaarclaw.mjs bootstrap
 ```
 
 ### Running
 
 ```bash
-# Start everything (MCP server + Web UI + OpenClaw gateway)
+# Start MCP server + OpenClaw gateway
 node vyapaarclaw.mjs start
 
-# Start MCP server only
+# MCP server only
 node vyapaarclaw.mjs start --mcp-only
 
-# Start without web UI
-node vyapaarclaw.mjs start --no-web
-
-# Check status
+# Check status / stop
 node vyapaarclaw.mjs status
-
-# Stop all services
 node vyapaarclaw.mjs stop
 ```
 
 ### Development
 
 ```bash
-# Run MCP server in dev mode
+# MCP server (SSE transport)
 VYAPAAR_TRANSPORT=sse uv run vyapaarclaw
 
-# Run web UI in dev mode
-pnpm web:dev
-
-# Run Python tests
+# Python tests (355+)
 uv run pytest tests/ --ignore=tests/test_razorpay_bridge.py
 
-# Run linter
+# Linter
 uv run ruff check src/vyapaar_mcp/
 ```
 
@@ -149,72 +138,71 @@ uv run ruff check src/vyapaar_mcp/
 
 ```
 vyapaarclaw/
-├── apps/web/              # Next.js web dashboard
-│   ├── app/
-│   │   ├── components/    # Dashboard, shell, charts
-│   │   ├── agents/        # Agent policies page
-│   │   ├── audit/         # Audit log page
-│   │   ├── chat/          # CFO chat interface
-│   │   └── cron/          # Scheduled jobs page
-│   └── package.json
+├── vyapaar-ui/            # Static web dashboard (OpenClaw control UI)
 ├── src/
-│   ├── cli/               # Node.js CLI (bootstrap, program, web-runtime)
-│   ├── vyapaar_mcp/       # Python MCP server
-│   │   ├── audit/         # Decision logging
-│   │   ├── db/            # Redis + PostgreSQL clients
-│   │   ├── egress/        # Notifications (Slack, Telegram, ntfy)
-│   │   ├── governance/    # Policy engine
-│   │   ├── ingress/       # Webhooks + polling
-│   │   ├── llm/           # Azure OpenAI integration
-│   │   ├── observability/ # Metrics + monitoring
-│   │   ├── reputation/    # Safe Browsing, GLEIF, anomaly detection
-│   │   ├── resilience/    # Circuit breakers
-│   │   └── server.py      # FastMCP server (25 tools)
-│   └── entry.ts           # CLI entry point
-├── skills/                # OpenClaw skills
-│   ├── cfo/               # Core AI CFO skill
-│   ├── cfo-delegation/    # Multi-agent delegation patterns
-│   └── cfo-canvas/        # Canvas dashboard templates
+│   ├── cli/               # Node.js CLI (bootstrap, program)
+│   └── vyapaar_mcp/       # Python MCP server
+│       ├── audit/         # Decision logging + DenchClaw sync
+│       ├── cfo/           # CFO intelligence tools
+│       ├── db/            # Redis + PostgreSQL
+│       ├── governance/    # 6-layer policy engine
+│       ├── integrations/  # DenchClaw, Browserwire
+│       ├── llm/           # LiteLLM client (provider-agnostic)
+│       ├── research/      # Exa vendor research
+│       └── server.py      # FastMCP server
+├── skills/                # OpenClaw skills (cfo, delegation, canvas)
 ├── templates/             # OpenClaw profile templates
-├── tests/                 # Python test suite (214 tests)
-└── vyapaarclaw.mjs        # CLI binary
+├── docs/                  # Architecture, setup, integrations
+├── tests/                 # Python test suite
+└── vyapaarclaw.mjs        # CLI entry point
 ```
 
 ---
 
 ## Configuration
 
-### Environment Variables
+Copy `.env.example` → `.env`. All secrets use the `VYAPAAR_` prefix.
 
 | Variable | Description |
 |----------|-------------|
 | `VYAPAAR_RAZORPAY_KEY_ID` | Razorpay API key |
 | `VYAPAAR_RAZORPAY_KEY_SECRET` | Razorpay API secret |
 | `VYAPAAR_RAZORPAY_WEBHOOK_SECRET` | Razorpay webhook HMAC secret |
+| `VYAPAAR_RAZORPAY_ACCOUNT_NUMBER` | RazorpayX account (polling mode) |
 | `VYAPAAR_REDIS_URL` | Redis connection URL |
-| `VYAPAAR_PG_DSN` | PostgreSQL connection string |
-| `VYAPAAR_SAFE_BROWSING_KEY` | Google Safe Browsing API key |
-| `VYAPAAR_SLACK_BOT_TOKEN` | Slack bot token for Human-in-the-Loop |
-| `VYAPAAR_SLACK_CHANNEL_ID` | Slack channel ID for alerting |
-| `VYAPAAR_AZURE_OPENAI_ENDPOINT` | AI endpoint (Azure / Local MLX) |
-| `VYAPAAR_AZURE_OPENAI_API_KEY` | AI authentication key |
+| `VYAPAAR_POSTGRES_DSN` | PostgreSQL connection string |
+| `VYAPAAR_GOOGLE_SAFE_BROWSING_KEY` | Google Safe Browsing API key |
+| `VYAPAAR_EXA_API_KEY` | Exa API key for vendor research |
+| `VYAPAAR_LLM_MODEL` | LiteLLM model ID (any provider) |
+| `VYAPAAR_LLM_API_KEY` | LLM API key |
+| `VYAPAAR_LLM_BASE_URL` | Optional custom LLM endpoint |
+| `VYAPAAR_DELEGATION_LLM_MODEL` | Cheaper model for sub-agent delegation |
+| `VYAPAAR_DENCHCLAW_ENABLED` | Sync audit + vendors to DenchClaw CRM |
+| `VYAPAAR_DENCHCLAW_URL` | DenchClaw web UI URL (default `http://localhost:3100`) |
 
-### OpenClaw Profile
-
-The `templates/openclaw.json` configures:
-
-- **Channels** — Telegram integration for approvals and alerts
-- **Cron** — Morning brief (daily), budget alarm (30 min), weekly compliance
-- **Webhooks** — Razorpay payment event processing
-- **Skills** — CFO, delegation, and canvas skills
-- **MCP Server** — Connection to VyapaarClaw at `localhost:8000/sse`
+Full variable reference: `.env.example`
 
 ---
 
-## Inspired By
+## Documentation
 
-- [DenchClaw](https://github.com/DenchHQ/DenchClaw) — Fully Managed OpenClaw Framework for CRM & Sales
-- [OpenClaw](https://openclaw.ai) — The personal AI assistant framework
+| Doc | Description |
+|-----|-------------|
+| [SETUP.md](docs/SETUP.md) | Slack, ngrok, webhook tunneling |
+| [LLM_CONFIGURATION.md](docs/LLM_CONFIGURATION.md) | Provider-agnostic LiteLLM setup |
+| [DENCHCLAW_INTEGRATION.md](docs/DENCHCLAW_INTEGRATION.md) | CRM audit + vendor sync |
+| [ENHANCEMENT_ROADMAP.md](docs/ENHANCEMENT_ROADMAP.md) | Phase 1–3 feature roadmap |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design overview |
+| [security-review.md](security-review.md) | OWASP-aligned security review |
+
+---
+
+## Integrations
+
+- [DenchClaw](https://github.com/DenchHQ/DenchClaw) — Local CRM for audit logs and vendor KYB
+- [LiteLLM](https://docs.litellm.ai/) — Provider-agnostic LLM routing
+- [Exa](https://exa.ai/) — Vendor research and adverse media screening
+- [OpenClaw](https://openclaw.ai) — Agent framework for cron, webhooks, and skills
 
 ## License
 

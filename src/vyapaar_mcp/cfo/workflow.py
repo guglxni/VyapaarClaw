@@ -103,10 +103,30 @@ class PayoutWorkflow:
 
 
 # ---------------------------------------------------------------------------
-# Module-level workflow registry
+# Module-level workflow registry (in-memory + optional Postgres)
 # ---------------------------------------------------------------------------
 
 _workflows: dict[str, PayoutWorkflow] = {}
+_postgres_store: Any = None
+
+
+def set_workflow_store(postgres: Any) -> None:
+    """Attach Postgres client for workflow persistence (Phase 3)."""
+    global _postgres_store
+    _postgres_store = postgres
+
+
+async def persist_workflow(wf: PayoutWorkflow) -> None:
+    """Save workflow to Postgres if store is configured."""
+    if _postgres_store is None:
+        return
+    await _postgres_store.save_workflow(
+        payout_id=wf.payout_id,
+        agent_id=wf.agent_id,
+        amount_paise=wf.amount_paise,
+        current_state=wf.state,  # type: ignore[attr-defined]
+        history=wf.history,
+    )
 
 
 def create_workflow(
@@ -125,11 +145,43 @@ def get_workflow(payout_id: str) -> PayoutWorkflow | None:
     return _workflows.get(payout_id)
 
 
+async def get_workflow_async(payout_id: str) -> PayoutWorkflow | None:
+    """Load workflow from memory or hydrate from Postgres."""
+    wf = _workflows.get(payout_id)
+    if wf:
+        return wf
+    if _postgres_store is None:
+        return None
+    data = await _postgres_store.get_workflow(payout_id)
+    if not data:
+        return None
+    wf = PayoutWorkflow(
+        payout_id=data["payout_id"],
+        amount_paise=data["amount_paise"],
+        agent_id=data["agent_id"],
+    )
+    wf.history = data.get("history", [])
+    # Restore state without replaying transitions
+    if hasattr(wf, "state"):
+        wf.state = data["current_state"]  # type: ignore[attr-defined]
+    _workflows[payout_id] = wf
+    return wf
+
+
 def list_workflows(state: str | None = None) -> list[dict[str, Any]]:
-    """List all workflows, optionally filtered by state."""
+    """List all in-memory workflows, optionally filtered by state."""
     results = []
     for wf in _workflows.values():
         if state and wf.state != state:  # type: ignore[attr-defined]
             continue
         results.append(wf.get_status())
     return results
+
+
+async def list_workflows_async(state: str | None = None) -> list[dict[str, Any]]:
+    """List workflows from Postgres when available, else in-memory."""
+    if _postgres_store is not None:
+        persisted = await _postgres_store.list_workflows(state)
+        if persisted:
+            return persisted
+    return list_workflows(state)

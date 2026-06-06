@@ -1,7 +1,7 @@
 """Audit logger — writes every governance decision to PostgreSQL.
 
 If PostgreSQL is unreachable, falls back to local filesystem
-(fail-safe per SPEC §14.1).
+(fail-safe per SPEC §14.1). Optionally syncs to DenchClaw CRM.
 """
 
 from __future__ import annotations
@@ -12,14 +12,25 @@ import logging
 import os
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from vyapaar_mcp.db.postgres import PostgresClient
 from vyapaar_mcp.models import GovernanceResult
 
+if TYPE_CHECKING:
+    from vyapaar_mcp.integrations.denchclaw import DenchClawClient
+
 logger = logging.getLogger(__name__)
 
-# Make fallback path configurable via environment variable
 FALLBACK_DIR = Path(os.environ.get("VYAPAAR_AUDIT_FALLBACK_DIR", "./audit_logs"))
+
+_dench_client: DenchClawClient | None = None
+
+
+def set_denchclaw_client(client: DenchClawClient | None) -> None:
+    """Attach DenchClaw client for CRM sync (set during server startup)."""
+    global _dench_client
+    _dench_client = client
 
 
 async def log_decision(
@@ -28,14 +39,7 @@ async def log_decision(
     vendor_name: str | None = None,
     vendor_url: str | None = None,
 ) -> None:
-    """Log a governance decision to PostgreSQL with filesystem fallback.
-
-    Args:
-        postgres: PostgreSQL client instance.
-        result: The governance decision result.
-        vendor_name: Optional vendor name for audit trail.
-        vendor_url: Optional vendor URL for audit trail.
-    """
+    """Log a governance decision to PostgreSQL with filesystem fallback."""
     try:
         await postgres.write_audit_log(
             result,
@@ -45,6 +49,38 @@ async def log_decision(
     except (asyncpg.PostgresError, RuntimeError, ConnectionError, TimeoutError, OSError) as e:
         logger.error("PostgreSQL audit write failed: %s — falling back to filesystem", e)
         _write_fallback(result, vendor_name, vendor_url)
+
+    await _sync_to_denchclaw(result, vendor_name, vendor_url)
+
+
+async def _sync_to_denchclaw(
+    result: GovernanceResult,
+    vendor_name: str | None,
+    vendor_url: str | None,
+) -> None:
+    """Best-effort sync to DenchClaw CRM object tables."""
+    if _dench_client is None or not _dench_client.configured:
+        return
+    try:
+        sync_result = await _dench_client.sync_audit_entry({
+            "payout_id": result.payout_id,
+            "agent_id": result.agent_id,
+            "amount": result.amount,
+            "decision": result.decision.value,
+            "reason_code": result.reason_code.value,
+            "reason_detail": result.reason_detail,
+            "vendor_name": vendor_name,
+            "vendor_url": vendor_url,
+            "processing_ms": result.processing_ms,
+        })
+        if sync_result.get("synced"):
+            logger.debug(
+                "DenchClaw audit sync OK: payout=%s entry=%s",
+                result.payout_id,
+                sync_result.get("entry_id"),
+            )
+    except Exception as exc:
+        logger.warning("DenchClaw audit sync failed (non-blocking): %s", exc)
 
 
 def _write_fallback(
