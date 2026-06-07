@@ -94,6 +94,13 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "src/vyapaar_mcp/reputation/anomaly.py" = ["N806"]
-"src/vyapaar_mcp/db/postgres.py" = ["S608"]  # SQL uses parameterized $N placeholders, not string interpolation
+"src/vyapaar_mcp/cfo/fraud.py" = ["N806", "N803"]  # NetworkX graph convention: G
+"src/vyapaar_mcp/cfo/ledger.py" = ["UP042"]  # str, Enum pattern for JSON serialization
+"src/vyapaar_mcp/cfo/workflow.py" = ["RUF012"]  # transitions Machine states list
+"src/vyapaar_mcp/db/postgres.py" = ["S608"]  # SQL uses parameterized $N placeholders
+"src/vyapaar_mcp/integrations/denchclaw.py" = ["S608"]  # DenchClaw API requires raw SQL; inputs validated via _sql_escape/_sql_identifier
+"src/vyapaar_mcp/cfo/reports.py" = ["S108"]  # temp PDF path; overwritten immediately
 "src/vyapaar_mcp/config.py" = ["S104"]  # 0.0.0.0 binding is intentional for container deployments
 "src/vyapaar_mcp/server.py" = ["S104"]
+"src/vyapaar_mcp/__main__.py" = ["E402"]  # defer imports until after env setup
+"src/vyapaar_mcp/tui/__init__.py" = ["E402"]  # optional TUI import guard

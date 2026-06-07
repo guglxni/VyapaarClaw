@@ -7,9 +7,10 @@ In production, secrets are injected via Vault/K8s Secrets.
 
 from __future__ import annotations
 
+from typing import Self
+
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing_extensions import Self
 
 
 class VyapaarConfig(BaseSettings):
@@ -242,7 +243,9 @@ class VyapaarConfig(BaseSettings):
     # gemini/xxx, groq/xxx, ollama/xxx, etc.
     llm_model: str = Field(
         default="",
-        description="LiteLLM model identifier (e.g. 'azure/kimi-k2.5', 'gpt-4o', 'anthropic/claude-3-opus')",
+        description=(
+            "LiteLLM model identifier (e.g. 'gpt-4o', 'anthropic/claude-3-opus', 'azure/kimi-k2.5')"
+        ),
     )
     llm_api_key: str = Field(
         default="",
@@ -266,7 +269,9 @@ class VyapaarConfig(BaseSettings):
     )
     delegation_llm_model: str = Field(
         default="",
-        description="LiteLLM model for sub-agent delegation (defaults to llm_model or openai/gpt-4o-mini)",
+        description=(
+            "LiteLLM model for sub-agent delegation (defaults to llm_model or openai/gpt-4o-mini)"
+        ),
     )
 
     # ============================================
@@ -384,7 +389,6 @@ class VyapaarConfig(BaseSettings):
         description="Log all security LLM validation decisions for audit",
     )
 
-
     @model_validator(mode="after")
     def _migrate_legacy_llm_config(self) -> Self:
         """Auto-map legacy Azure OpenAI / dual-LLM fields to generic keys."""
@@ -419,6 +423,7 @@ class VyapaarConfig(BaseSettings):
             else:
                 self.security_llm_base_url = default_url
         return self
+
 
 def load_config() -> VyapaarConfig:
     """Load and validate configuration from environment."""

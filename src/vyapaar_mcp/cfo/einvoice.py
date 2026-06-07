@@ -71,6 +71,7 @@ def validate_einvoice_bundle(
 
     if gstin:
         from vyapaar_mcp.cfo.tax import validate_gstin
+
         gst_result = validate_gstin(gstin)
         if not gst_result.get("valid"):
             errors.append(f"GSTIN: {gst_result.get('error')}")

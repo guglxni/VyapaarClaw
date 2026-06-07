@@ -190,10 +190,7 @@ def generate_governance_report(
         findings = fraud.get("findings", [])
         if findings:
             headers = ["Type", "Severity", "Description"]
-            rows = [
-                [f["type"], f["severity"], f["description"][:50]]
-                for f in findings[:5]
-            ]
+            rows = [[f["type"], f["severity"], f["description"][:50]] for f in findings[:5]]
             pdf.add_table(headers, rows, col_widths=[50, 30, 110])
 
     # Save

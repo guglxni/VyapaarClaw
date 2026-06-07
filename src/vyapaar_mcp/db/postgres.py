@@ -433,7 +433,8 @@ class PostgresClient:
         async with self.pool.acquire() as conn:
             if state:
                 rows = await conn.fetch(
-                    "SELECT * FROM payout_workflows WHERE current_state = $1 ORDER BY updated_at DESC",
+                    "SELECT * FROM payout_workflows "
+                    "WHERE current_state = $1 ORDER BY updated_at DESC",
                     state,
                 )
             else:
@@ -531,10 +532,12 @@ class PostgresClient:
                 health = "yellow"
             else:
                 health = "green"
-            result.append({
-                **agent,
-                "current_daily_spend_paise": spent,
-                "utilisation_pct": util,
-                "budget_health": health,
-            })
+            result.append(
+                {
+                    **agent,
+                    "current_daily_spend_paise": spent,
+                    "utilisation_pct": util,
+                    "budget_health": health,
+                }
+            )
         return result

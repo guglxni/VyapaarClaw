@@ -32,7 +32,7 @@ Instead, report it responsibly via one of these methods:
 
 The following are in scope:
 - VyapaarClaw MCP server (`src/vyapaar_mcp/`)
-- Web dashboard (`apps/web/`)
+- OpenClaw control UI (`vyapaar-ui/`)
 - CLI tooling (`src/cli/`)
 - Docker/deployment configurations (`deploy/`, `docker-compose.yml`)
 - Webhook and API security
@@ -41,7 +41,7 @@ The following are in scope:
 ### Out of scope
 
 - Third-party dependencies (report upstream)
-- Vulnerabilities in Razorpay/Azure/Slack/Telegram APIs themselves
+- Vulnerabilities in Razorpay/Slack/Telegram APIs themselves
 - Social engineering attacks
 - Denial of service via legitimate rate-limited endpoints
 

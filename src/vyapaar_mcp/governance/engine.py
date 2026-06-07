@@ -84,6 +84,7 @@ class GovernanceEngine:
         """
         start_time = time.monotonic()
         ctx = extract_payout_context(payout)
+        vendor_name = ctx.get("vendor_name") or ""
         if not vendor_url:
             vendor_url = ctx.get("vendor_url") or None
 
@@ -211,7 +212,11 @@ class GovernanceEngine:
                     ReasonCode.GST_INVALID,
                     f"GSTIN '{gstin}' live status: {live_gst.get('status', 'cancelled')}",
                 )
-            if recommendation == "HOLD" or live_gst.get("suspended") or live_gst.get("name_match") is False:
+            if (
+                recommendation == "HOLD"
+                or live_gst.get("suspended")
+                or live_gst.get("name_match") is False
+            ):
                 return self._result(
                     payout,
                     agent_id,
@@ -238,7 +243,6 @@ class GovernanceEngine:
                 )
 
         # --- Step 7: Sanctions screening ---
-        vendor_name = ctx.get("vendor_name") or ""
         if self._options.check_sanctions and vendor_name:
             sanctions = await screen_against_sanctions(vendor_name)
             if sanctions.get("screened"):
@@ -251,8 +255,7 @@ class GovernanceEngine:
                         start_time,
                         Decision.REJECTED,
                         ReasonCode.SANCTIONS_MATCH,
-                        f"Vendor '{vendor_name}' matched sanctions list"
-                        f" (score={match_score:.2f})",
+                        f"Vendor '{vendor_name}' matched sanctions list (score={match_score:.2f})",
                     )
 
         # --- Step 8: Google Safe Browsing reputation check ---
@@ -283,11 +286,7 @@ class GovernanceEngine:
                 model_trained=anomaly.model_trained,
             )
             if anomaly.is_anomalous:
-                decision = (
-                    Decision.HELD
-                    if self._options.anomaly_hold
-                    else Decision.REJECTED
-                )
+                decision = Decision.HELD if self._options.anomaly_hold else Decision.REJECTED
                 return self._result(
                     payout,
                     agent_id,

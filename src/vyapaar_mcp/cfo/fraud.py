@@ -49,7 +49,8 @@ def build_transaction_graph(
             G[agent][vendor]["count"] += 1
         else:
             G.add_edge(
-                agent, vendor,
+                agent,
+                vendor,
                 relation="pays",
                 total_paise=amount,
                 count=1,
@@ -79,32 +80,36 @@ def detect_fraud_patterns(
     pan_nodes = [n for n, d in G.nodes(data=True) if d.get("type") == "pan"]
     for pan in pan_nodes:
         vendors_with_pan = [
-            pred for pred in G.predecessors(pan)
-            if G.nodes[pred].get("type") == "vendor"
+            pred for pred in G.predecessors(pan) if G.nodes[pred].get("type") == "vendor"
         ]
         if len(vendors_with_pan) > 1:
-            findings.append({
-                "type": "shared_pan",
-                "severity": "high",
-                "description": f"PAN {pan} shared by {len(vendors_with_pan)} vendors",
-                "entities": vendors_with_pan,
-                "pan": pan,
-            })
+            findings.append(
+                {
+                    "type": "shared_pan",
+                    "severity": "high",
+                    "description": f"PAN {pan} shared by {len(vendors_with_pan)} vendors",
+                    "entities": vendors_with_pan,
+                    "pan": pan,
+                }
+            )
 
     # 2. Shared bank account detection
     bank_nodes = [n for n, d in G.nodes(data=True) if d.get("type") == "bank_account"]
     for account in bank_nodes:
         vendors_with_account = [
-            pred for pred in G.predecessors(account)
-            if G.nodes[pred].get("type") == "vendor"
+            pred for pred in G.predecessors(account) if G.nodes[pred].get("type") == "vendor"
         ]
         if len(vendors_with_account) > 1:
-            findings.append({
-                "type": "shared_bank_account",
-                "severity": "high",
-                "description": f"Bank account {account} shared by {len(vendors_with_account)} vendors",
-                "entities": vendors_with_account,
-            })
+            findings.append(
+                {
+                    "type": "shared_bank_account",
+                    "severity": "high",
+                    "description": (
+                        f"Bank account {account} shared by {len(vendors_with_account)} vendors"
+                    ),
+                    "entities": vendors_with_account,
+                }
+            )
 
     # 3. High centrality detection (vendor receiving from too many agents)
     vendor_nodes = [n for n, d in G.nodes(data=True) if d.get("type") == "vendor"]
@@ -119,14 +124,16 @@ def detect_fraud_patterns(
                         for pred in G.predecessors(vendor)
                         if G[pred][vendor].get("relation") == "pays"
                     )
-                    findings.append({
-                        "type": "high_centrality",
-                        "severity": "medium",
-                        "description": f"Vendor '{vendor}' receives from {degree} agents",
-                        "vendor": vendor,
-                        "agent_count": degree,
-                        "total_received_paise": total_received,
-                    })
+                    findings.append(
+                        {
+                            "type": "high_centrality",
+                            "severity": "medium",
+                            "description": f"Vendor '{vendor}' receives from {degree} agents",
+                            "vendor": vendor,
+                            "agent_count": degree,
+                            "total_received_paise": total_received,
+                        }
+                    )
 
     # 4. Cycle detection (circular payments)
     try:
@@ -134,12 +141,14 @@ def detect_fraud_patterns(
         payment_graph = G.edge_subgraph(payment_edges) if payment_edges else nx.DiGraph()
         cycles = list(nx.simple_cycles(payment_graph))
         for cycle in cycles[:5]:  # Limit to first 5
-            findings.append({
-                "type": "circular_payment",
-                "severity": "critical",
-                "description": f"Circular payment pattern detected: {' → '.join(cycle)}",
-                "entities": cycle,
-            })
+            findings.append(
+                {
+                    "type": "circular_payment",
+                    "severity": "critical",
+                    "description": f"Circular payment pattern detected: {' → '.join(cycle)}",
+                    "entities": cycle,
+                }
+            )
     except nx.NetworkXError:
         pass
 
@@ -206,10 +215,11 @@ def detect_fraud_with_ml(
     """Enhanced fraud detection: graph patterns + optional PyGOD if installed."""
     base = detect_fraud_patterns(transactions)
 
-    try:
-        from pygod.detector import DOMINANT  # type: ignore[import-untyped]
-        import torch  # type: ignore[import-untyped]
-    except ImportError:
+    import importlib.util
+
+    pygod_available = importlib.util.find_spec("pygod") is not None
+    torch_available = importlib.util.find_spec("torch") is not None
+    if not (pygod_available and torch_available):
         base["ml_engine"] = "networkx"
         return base
 

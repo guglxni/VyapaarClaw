@@ -83,13 +83,13 @@ class BrowserwireGstProvider:
 
         status = live.get("status", "Unknown")
         legal_name = live.get("legal_name", "")
-        name_match = _fuzzy_name_match(vendor_name, legal_name) if vendor_name and legal_name else None
+        name_match = (
+            _fuzzy_name_match(vendor_name, legal_name) if vendor_name and legal_name else None
+        )
 
         if live.get("cancelled"):
             recommendation = "REJECT"
-        elif live.get("suspended"):
-            recommendation = "HOLD"
-        elif name_match is False:
+        elif live.get("suspended") or name_match is False:
             recommendation = "HOLD"
         else:
             recommendation = "PASS"
@@ -164,15 +164,15 @@ class GspGstProvider:
 
         status = data.get("status") or data.get("registration_status") or "Unknown"
         legal_name = data.get("legal_name") or data.get("tradeNam") or ""
-        name_match = _fuzzy_name_match(vendor_name, legal_name) if vendor_name and legal_name else None
+        name_match = (
+            _fuzzy_name_match(vendor_name, legal_name) if vendor_name and legal_name else None
+        )
 
         cancelled = "cancel" in status.lower()
         suspended = "suspend" in status.lower()
         if cancelled:
             recommendation = "REJECT"
-        elif suspended:
-            recommendation = "HOLD"
-        elif name_match is False:
+        elif suspended or name_match is False:
             recommendation = "HOLD"
         else:
             recommendation = "PASS"
@@ -194,6 +194,7 @@ class GspGstProvider:
 
 def _fuzzy_name_match(expected: str, actual: str) -> bool:
     """Simple normalized name comparison for KYB."""
+
     def norm(s: str) -> str:
         return "".join(c for c in s.upper() if c.isalnum())
 
@@ -204,8 +205,16 @@ def _fuzzy_name_match(expected: str, actual: str) -> bool:
 
 
 def _token_overlap(a: str, b: str) -> float:
-    ta = {t for t in a.split() if len(t) > 2} if " " in a else set(a[i:i+4] for i in range(0, len(a), 4))
-    tb = {t for t in b.split() if len(t) > 2} if " " in b else set(b[i:i+4] for i in range(0, len(b), 4))
+    ta = (
+        {t for t in a.split() if len(t) > 2}
+        if " " in a
+        else set(a[i : i + 4] for i in range(0, len(a), 4))
+    )
+    tb = (
+        {t for t in b.split() if len(t) > 2}
+        if " " in b
+        else set(b[i : i + 4] for i in range(0, len(b), 4))
+    )
     if not ta or not tb:
         return 0.0
     return len(ta & tb) / max(len(ta), len(tb))
@@ -246,7 +255,9 @@ def build_gst_chain(
     providers: list[GstVerificationProvider] = [FormatGstProvider()]
 
     if enable_live and browserwire_url:
-        providers.append(BrowserwireGstProvider(BrowserwireClient(browserwire_url, browserwire_key)))
+        providers.append(
+            BrowserwireGstProvider(BrowserwireClient(browserwire_url, browserwire_key))
+        )
 
     if enable_live and gsp_url and gsp_key:
         providers.append(GspGstProvider(gsp_url, gsp_key))

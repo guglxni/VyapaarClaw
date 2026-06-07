@@ -7,9 +7,7 @@ detection: "this agent usually pays for SaaS, but just tried legal."
 
 from __future__ import annotations
 
-import re
 from typing import Any
-
 
 # ---------------------------------------------------------------------------
 # Category taxonomy with keyword patterns
@@ -17,41 +15,108 @@ from typing import Any
 
 _CATEGORIES: dict[str, list[str]] = {
     "salaries_wages": [
-        "salary", "wage", "payroll", "employee", "staff", "bonus",
-        "commission", "stipend", "overtime", "compensation",
+        "salary",
+        "wage",
+        "payroll",
+        "employee",
+        "staff",
+        "bonus",
+        "commission",
+        "stipend",
+        "overtime",
+        "compensation",
     ],
     "vendor_supplies": [
-        "supply", "supplies", "material", "raw material", "inventory",
-        "purchase", "procurement", "stock", "wholesale",
+        "supply",
+        "supplies",
+        "material",
+        "raw material",
+        "inventory",
+        "purchase",
+        "procurement",
+        "stock",
+        "wholesale",
     ],
     "saas_software": [
-        "saas", "software", "license", "subscription", "cloud",
-        "aws", "azure", "gcp", "github", "jira", "slack",
-        "notion", "figma", "vercel", "heroku", "digital ocean",
+        "saas",
+        "software",
+        "license",
+        "subscription",
+        "cloud",
+        "aws",
+        "azure",
+        "gcp",
+        "github",
+        "jira",
+        "slack",
+        "notion",
+        "figma",
+        "vercel",
+        "heroku",
+        "digital ocean",
     ],
     "professional_services": [
-        "consulting", "advisory", "legal", "audit", "accounting",
-        "lawyer", "attorney", "chartered accountant", "ca fees",
+        "consulting",
+        "advisory",
+        "legal",
+        "audit",
+        "accounting",
+        "lawyer",
+        "attorney",
+        "chartered accountant",
+        "ca fees",
     ],
     "marketing_advertising": [
-        "marketing", "advertising", "ads", "campaign", "promotion",
-        "branding", "seo", "social media", "influencer",
+        "marketing",
+        "advertising",
+        "ads",
+        "campaign",
+        "promotion",
+        "branding",
+        "seo",
+        "social media",
+        "influencer",
     ],
     "utilities_rent": [
-        "rent", "lease", "electricity", "water", "internet",
-        "broadband", "telephone", "office space", "co-working",
+        "rent",
+        "lease",
+        "electricity",
+        "water",
+        "internet",
+        "broadband",
+        "telephone",
+        "office space",
+        "co-working",
     ],
     "travel_transport": [
-        "travel", "flight", "hotel", "cab", "uber", "ola",
-        "train", "airfare", "accommodation", "transport",
+        "travel",
+        "flight",
+        "hotel",
+        "cab",
+        "uber",
+        "ola",
+        "train",
+        "airfare",
+        "accommodation",
+        "transport",
     ],
     "insurance": [
-        "insurance", "premium", "policy", "health insurance",
-        "life insurance", "general insurance",
+        "insurance",
+        "premium",
+        "policy",
+        "health insurance",
+        "life insurance",
+        "general insurance",
     ],
     "taxes_compliance": [
-        "tax", "gst", "tds", "income tax", "advance tax",
-        "professional tax", "filing", "penalty",
+        "tax",
+        "gst",
+        "tds",
+        "income tax",
+        "advance tax",
+        "professional tax",
+        "filing",
+        "penalty",
     ],
     "miscellaneous": [],  # Catch-all
 }
@@ -90,7 +155,6 @@ def categorize_transaction(
     best_category, best_score = sorted_scores[0]
 
     # Normalize confidence to 0-1
-    max_possible = max(len(kws) for kws in _CATEGORIES.values() if kws)
     confidence = min(best_score * 5, 1.0)  # Amplify for usability
 
     alternatives = [
@@ -131,14 +195,14 @@ def get_spending_profile(
             "count": category_counts.get(cat, 0),
             "percentage": round(total / total_spend * 100, 1) if total_spend > 0 else 0,
         }
-        for cat, total in sorted(
-            category_totals.items(), key=lambda x: x[1], reverse=True
-        )
+        for cat, total in sorted(category_totals.items(), key=lambda x: x[1], reverse=True)
     }
 
     return {
         "total_spend_paise": total_spend,
         "total_transactions": len(transactions),
         "categories": distribution,
-        "top_category": max(category_totals, key=category_totals.get) if category_totals else "none",  # type: ignore[arg-type]
+        "top_category": max(category_totals, key=category_totals.get)
+        if category_totals
+        else "none",  # type: ignore[arg-type]
     }

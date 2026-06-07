@@ -21,7 +21,9 @@ class TestTrustScore:
         assert score_from_sanctions({"screened": True, "max_match_score": 0.0}) == 1.0
 
     def test_score_from_sanctions_critical(self) -> None:
-        assert score_from_sanctions({"screened": True, "max_match_score": 0.9}) == pytest.approx(0.1)
+        assert score_from_sanctions({"screened": True, "max_match_score": 0.9}) == pytest.approx(
+            0.1
+        )
 
     def test_score_from_sanctions_unknown(self) -> None:
         assert score_from_sanctions({"screened": False}) == 0.5

@@ -31,6 +31,7 @@ def _sql_escape(value: Any) -> str:
     """Escape values for DuckDB raw SQL string literals."""
     return str(value).replace("'", "''").replace("\x00", "")
 
+
 def _sql_identifier(value: str) -> str:
     """Strictly validate identifiers (table/column names) to prevent injection."""
     if not re.match(r"^[a-zA-Z0-9_]+$", str(value)):
@@ -97,14 +98,15 @@ class DenchClawClient:
     ) -> str:
         """Ensure CRM object + fields exist. Returns object_id."""
         rows = await self._execute(
-            "SELECT id FROM objects WHERE name = '{}'".format(_sql_escape(object_name))
+            f"SELECT id FROM objects WHERE name = '{_sql_escape(object_name)}'"
         )
         if rows:
             object_id = str(rows[0]["id"])
         else:
             insert_rows = await self._execute(
                 "INSERT INTO objects (name, description, default_view, immutable) "
-                "VALUES ('{}', '{}', 'table', false) RETURNING id".format(_sql_escape(object_name), _sql_escape(description))
+                f"VALUES ('{_sql_escape(object_name)}', '{_sql_escape(description)}', "
+                "'table', false) RETURNING id"
             )
             object_id = str(insert_rows[0]["id"])
 
@@ -117,14 +119,14 @@ class DenchClawClient:
         for idx, (field_name, field_type, required) in enumerate(fields):
             existing = await self._execute(
                 "SELECT id FROM fields "
-                "WHERE object_id = '{}' AND name = '{}'".format(_sql_escape(object_id), _sql_escape(field_name))
+                f"WHERE object_id = '{_sql_escape(object_id)}' "
+                f"AND name = '{_sql_escape(field_name)}'"
             )
             if not existing:
                 await self._execute(
                     "INSERT INTO fields (object_id, name, type, required, sort_order) "
-                    "VALUES ('{}', '{}', '{}', {}, {})".format(
-                        _sql_escape(object_id), _sql_escape(field_name), _sql_escape(field_type), str(required).lower(), idx
-                    )
+                    f"VALUES ('{_sql_escape(object_id)}', '{_sql_escape(field_name)}', "
+                    f"'{_sql_escape(field_type)}', {str(required).lower()}, {idx})"
                 )
 
         await self._refresh_pivot_view(object_name, object_id, fields)
@@ -136,30 +138,26 @@ class DenchClawClient:
         object_id: str,
         fields: list[tuple[str, str, bool]],
     ) -> None:
-        field_names = ", ".join(
-            f"'{_sql_escape(name)}'" for name, _, _ in fields
-        )
+        field_names = ", ".join(f"'{_sql_escape(name)}'" for name, _, _ in fields)
         view = f"v_{re.sub(r'[^a-zA-Z0-9_]', '_', object_name)}"
-        await self._execute("DROP VIEW IF EXISTS {}".format(_sql_identifier(view)))
+        await self._execute(f"DROP VIEW IF EXISTS {_sql_identifier(view)}")
         await self._execute(
-            ("CREATE OR REPLACE VIEW {} AS "
-             "PIVOT ("
-             "  SELECT e.id as entry_id, e.created_at, e.updated_at,"
-             "         f.name as field_name, ef.value"
-             "  FROM entries e"
-             "  JOIN entry_fields ef ON ef.entry_id = e.id"
-             "  JOIN fields f ON f.id = ef.field_id"
-             "  WHERE e.object_id = '{}' AND f.type != 'action'"
-             ") ON field_name IN ({}) USING first(value)").format(
-                 _sql_identifier(view), _sql_escape(object_id), field_names
-             )
+            f"CREATE OR REPLACE VIEW {_sql_identifier(view)} AS "
+            "PIVOT ("
+            "  SELECT e.id as entry_id, e.created_at, e.updated_at,"
+            "         f.name as field_name, ef.value"
+            "  FROM entries e"
+            "  JOIN entry_fields ef ON ef.entry_id = e.id"
+            "  JOIN fields f ON f.id = ef.field_id"
+            f"  WHERE e.object_id = '{_sql_escape(object_id)}' AND f.type != 'action'"
+            f") ON field_name IN ({field_names}) USING first(value)"
         )
 
     async def _load_field_map(self, object_id: str) -> dict[str, str]:
         if object_id in self._field_cache:
             return self._field_cache[object_id]
         rows = await self._execute(
-            "SELECT id, name FROM fields WHERE object_id = '{}'".format(_sql_escape(object_id))
+            f"SELECT id, name FROM fields WHERE object_id = '{_sql_escape(object_id)}'"
         )
         mapping = {str(r["name"]): str(r["id"]) for r in rows}
         self._field_cache[object_id] = mapping
@@ -179,23 +177,19 @@ class DenchClawClient:
             raise RuntimeError(f"Field '{unique_field}' not found")
 
         existing = await self._execute(
-            ("SELECT e.id as entry_id FROM entries e "
-             "JOIN entry_fields ef ON ef.entry_id = e.id "
-             "WHERE e.object_id = '{}' "
-             "AND ef.field_id = '{}' "
-             "AND ef.value = '{}' "
-             "LIMIT 1").format(
-                 _sql_escape(object_id),
-                 _sql_escape(unique_field_id),
-                 _sql_escape(unique_value)
-             )
+            "SELECT e.id as entry_id FROM entries e "
+            "JOIN entry_fields ef ON ef.entry_id = e.id "
+            f"WHERE e.object_id = '{_sql_escape(object_id)}' "
+            f"AND ef.field_id = '{_sql_escape(unique_field_id)}' "
+            f"AND ef.value = '{_sql_escape(unique_value)}' "
+            "LIMIT 1"
         )
 
         if existing:
             entry_id = str(existing[0]["entry_id"])
         else:
             created = await self._execute(
-                "INSERT INTO entries (object_id) VALUES ('{}') RETURNING id".format(_sql_escape(object_id))
+                f"INSERT INTO entries (object_id) VALUES ('{_sql_escape(object_id)}') RETURNING id"
             )
             entry_id = str(created[0]["id"])
 
@@ -204,12 +198,11 @@ class DenchClawClient:
             if not field_id:
                 continue
             await self._execute(
-                ("INSERT INTO entry_fields (entry_id, field_id, value) "
-                 "VALUES ('{}', '{}', '{}') "
-                 "ON CONFLICT (entry_id, field_id) DO UPDATE SET "
-                 "value = EXCLUDED.value, updated_at = now()").format(
-                     _sql_escape(entry_id), _sql_escape(field_id), _sql_escape(str(value))
-                 )
+                "INSERT INTO entry_fields (entry_id, field_id, value) "
+                f"VALUES ('{_sql_escape(entry_id)}', '{_sql_escape(field_id)}', "
+                f"'{_sql_escape(str(value))}') "
+                "ON CONFLICT (entry_id, field_id) DO UPDATE SET "
+                "value = EXCLUDED.value, updated_at = now()"
             )
 
         return entry_id

@@ -170,35 +170,43 @@ class Ledger:
 
         # GST entries
         if gst_paise > 0:
-            entries.append({
-                "account": "2100",  # GST Payable
-                "type": "debit",
-                "amount_paise": gst_paise,
-            })
+            entries.append(
+                {
+                    "account": "2100",  # GST Payable
+                    "type": "debit",
+                    "amount_paise": gst_paise,
+                }
+            )
             net_amount -= gst_paise
 
         # TDS entries
         if tds_paise > 0:
-            entries.append({
-                "account": "2200",  # TDS Payable
-                "type": "credit",
-                "amount_paise": tds_paise,
-            })
+            entries.append(
+                {
+                    "account": "2200",  # TDS Payable
+                    "type": "credit",
+                    "amount_paise": tds_paise,
+                }
+            )
             net_amount += tds_paise  # TDS reduces actual outflow
 
         # Main expense
-        entries.append({
-            "account": expense_code,
-            "type": "debit",
-            "amount_paise": amount_paise,
-        })
+        entries.append(
+            {
+                "account": expense_code,
+                "type": "debit",
+                "amount_paise": amount_paise,
+            }
+        )
 
         # Razorpay outflow
-        entries.append({
-            "account": "1100",  # Razorpay Balance
-            "type": "credit",
-            "amount_paise": amount_paise,
-        })
+        entries.append(
+            {
+                "account": "1100",  # Razorpay Balance
+                "type": "credit",
+                "amount_paise": amount_paise,
+            }
+        )
 
         full_desc = f"Payout to {vendor_name}: {description}" if vendor_name else description
 
@@ -229,13 +237,17 @@ class Ledger:
 
             total_debit += debit
             total_credit += credit
-            trial.append({
-                "code": code,
-                "name": account_info.get("name", "Unknown"),
-                "type": account_type.value if isinstance(account_type, AccountType) else str(account_type),
-                "debit_paise": debit,
-                "credit_paise": credit,
-            })
+            trial.append(
+                {
+                    "code": code,
+                    "name": account_info.get("name", "Unknown"),
+                    "type": account_type.value
+                    if isinstance(account_type, AccountType)
+                    else str(account_type),
+                    "debit_paise": debit,
+                    "credit_paise": credit,
+                }
+            )
 
         return {
             "accounts": trial,
@@ -295,19 +307,23 @@ async def persist_journal_entry(
         account_code = line["account"]
         account_name = _ledger.chart.get(account_code, {}).get("name", account_code)
         if line["type"] == "debit":
-            pg_lines.append({
-                "account_code": account_code,
-                "account_name": account_name,
-                "debit_paise": line["amount_paise"],
-                "credit_paise": 0,
-            })
+            pg_lines.append(
+                {
+                    "account_code": account_code,
+                    "account_name": account_name,
+                    "debit_paise": line["amount_paise"],
+                    "credit_paise": 0,
+                }
+            )
         else:
-            pg_lines.append({
-                "account_code": account_code,
-                "account_name": account_name,
-                "debit_paise": 0,
-                "credit_paise": line["amount_paise"],
-            })
+            pg_lines.append(
+                {
+                    "account_code": account_code,
+                    "account_name": account_name,
+                    "debit_paise": 0,
+                    "credit_paise": line["amount_paise"],
+                }
+            )
     await postgres.write_ledger_entries(
         reference=journal_entry.get("reference", ""),
         description=journal_entry.get("description", ""),

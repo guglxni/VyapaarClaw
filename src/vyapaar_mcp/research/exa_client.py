@@ -69,13 +69,15 @@ class ExaClient:
 
         results = []
         for item in data.get("results", []):
-            results.append({
-                "title": item.get("title", ""),
-                "url": item.get("url", ""),
-                "published_date": item.get("publishedDate"),
-                "score": item.get("score"),
-                "text": (item.get("text") or "")[:500],
-            })
+            results.append(
+                {
+                    "title": item.get("title", ""),
+                    "url": item.get("url", ""),
+                    "published_date": item.get("publishedDate"),
+                    "score": item.get("score"),
+                    "text": (item.get("text") or "")[:500],
+                }
+            )
 
         return {
             "query": query,
@@ -118,7 +120,10 @@ def _summarize_research(
     if company.get("error"):
         return f"Research incomplete for {vendor_name}: {company['error']}"
     if adverse_count == 0:
-        return f"Found {company_count} sources for {vendor_name}; no adverse media hits in top results."
+        return (
+            f"Found {company_count} sources for {vendor_name}; "
+            "no adverse media hits in top results."
+        )
     return (
         f"Found {company_count} company sources and {adverse_count} potential adverse signals "
         f"for {vendor_name}. Manual review recommended."

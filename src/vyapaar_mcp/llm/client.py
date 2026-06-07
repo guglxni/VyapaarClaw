@@ -116,11 +116,7 @@ class LLMClient:
             prompt_tok = getattr(usage, "prompt_tokens", 0)
             completion_tok = getattr(usage, "completion_tokens", 0)
             total_tok = getattr(usage, "total_tokens", 0)
-            finish_reason = (
-                response.choices[0].finish_reason
-                if response.choices
-                else None
-            )
+            finish_reason = response.choices[0].finish_reason if response.choices else None
 
             logger.info(
                 "LLM response: model=%s tokens=%d→%d total=%d finish=%s",

@@ -18,9 +18,9 @@ from vyapaar_mcp.cfo.tax import validate_gstin
 from vyapaar_mcp.reputation.trust_score import (
     compute_vendor_trust_score,
     score_from_gleif,
+    score_from_gstin,
     score_from_safe_browsing,
     score_from_sanctions,
-    score_from_gstin,
     trust_recommendation,
 )
 
@@ -100,16 +100,19 @@ async def screen_against_sanctions(
     for result in results:
         score = result.get("score", 0)
         max_score = max(max_score, score)
-        matches.append({
-            "name": result.get("caption", ""),
-            "score": score,
-            "schema": result.get("schema", ""),
-            "datasets": [d.get("name", "") for d in result.get("datasets", [])],
-            "properties": {
-                k: v for k, v in result.get("properties", {}).items()
-                if k in ("country", "topics", "alias", "birthDate")
-            },
-        })
+        matches.append(
+            {
+                "name": result.get("caption", ""),
+                "score": score,
+                "schema": result.get("schema", ""),
+                "datasets": [d.get("name", "") for d in result.get("datasets", [])],
+                "properties": {
+                    k: v
+                    for k, v in result.get("properties", {}).items()
+                    if k in ("country", "topics", "alias", "birthDate")
+                },
+            }
+        )
 
     if max_score > 0.8:
         risk_level = "critical"

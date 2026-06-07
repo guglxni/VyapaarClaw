@@ -41,7 +41,7 @@ class PayoutWorkflow:
         self.payout_id = payout_id or str(uuid.uuid4())[:8]
         self.amount_paise = amount_paise
         self.agent_id = agent_id
-        self.created_at = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        self.created_at = _dt.datetime.now(_dt.UTC).isoformat()
         self.history: list[dict[str, Any]] = []
 
         self.machine = Machine(
@@ -53,39 +53,78 @@ class PayoutWorkflow:
         )
 
         # Governance pipeline transitions
-        self.machine.add_transition("start_review", "queued", "policy_check", after="_log_transition")
-        self.machine.add_transition("pass_policy", "policy_check", "reputation_check", after="_log_transition")
-        self.machine.add_transition("pass_reputation", "reputation_check", "anomaly_check", after="_log_transition")
-        self.machine.add_transition("pass_anomaly", "anomaly_check", "approved", after="_log_transition")
+        self.machine.add_transition(
+            "start_review", "queued", "policy_check", after="_log_transition"
+        )
+        self.machine.add_transition(
+            "pass_policy", "policy_check", "reputation_check", after="_log_transition"
+        )
+        self.machine.add_transition(
+            "pass_reputation", "reputation_check", "anomaly_check", after="_log_transition"
+        )
+        self.machine.add_transition(
+            "pass_anomaly", "anomaly_check", "approved", after="_log_transition"
+        )
 
         # Hold path (escalation)
-        self.machine.add_transition("hold", ["policy_check", "reputation_check", "anomaly_check"], "held", after="_log_transition")
-        self.machine.add_transition("escalate_l1", "held", "pending_l1_approval", after="_log_transition")
-        self.machine.add_transition("approve_l1", "pending_l1_approval", "approved", after="_log_transition")
-        self.machine.add_transition("escalate_l2", "pending_l1_approval", "pending_l2_approval", after="_log_transition")
-        self.machine.add_transition("approve_l2", "pending_l2_approval", "approved", after="_log_transition")
+        self.machine.add_transition(
+            "hold",
+            ["policy_check", "reputation_check", "anomaly_check"],
+            "held",
+            after="_log_transition",
+        )
+        self.machine.add_transition(
+            "escalate_l1", "held", "pending_l1_approval", after="_log_transition"
+        )
+        self.machine.add_transition(
+            "approve_l1", "pending_l1_approval", "approved", after="_log_transition"
+        )
+        self.machine.add_transition(
+            "escalate_l2", "pending_l1_approval", "pending_l2_approval", after="_log_transition"
+        )
+        self.machine.add_transition(
+            "approve_l2", "pending_l2_approval", "approved", after="_log_transition"
+        )
 
         # Rejection path
-        self.machine.add_transition("reject", ["policy_check", "reputation_check", "anomaly_check", "held", "pending_l1_approval", "pending_l2_approval"], "rejected", after="_log_transition")
+        self.machine.add_transition(
+            "reject",
+            [
+                "policy_check",
+                "reputation_check",
+                "anomaly_check",
+                "held",
+                "pending_l1_approval",
+                "pending_l2_approval",
+            ],
+            "rejected",
+            after="_log_transition",
+        )
 
         # Disbursement path
         self.machine.add_transition("disburse", "approved", "disbursed", after="_log_transition")
         self.machine.add_transition("confirm", "disbursed", "confirmed", after="_log_transition")
-        self.machine.add_transition("fail_disbursement", "disbursed", "failed", after="_log_transition")
+        self.machine.add_transition(
+            "fail_disbursement", "disbursed", "failed", after="_log_transition"
+        )
 
         # Archive
-        self.machine.add_transition("archive", ["rejected", "confirmed", "failed"], "archived", after="_log_transition")
+        self.machine.add_transition(
+            "archive", ["rejected", "confirmed", "failed"], "archived", after="_log_transition"
+        )
 
     def _log_transition(self, event: Any) -> None:
         """Log every state transition with metadata."""
-        self.history.append({
-            "timestamp": _dt.datetime.now(_dt.timezone.utc).isoformat(),
-            "from_state": event.transition.source,
-            "to_state": event.transition.dest,
-            "trigger": event.event.name,
-            "actor": getattr(event, "kwargs", {}).get("actor", "system"),
-            "reason": getattr(event, "kwargs", {}).get("reason", ""),
-        })
+        self.history.append(
+            {
+                "timestamp": _dt.datetime.now(_dt.UTC).isoformat(),
+                "from_state": event.transition.source,
+                "to_state": event.transition.dest,
+                "trigger": event.event.name,
+                "actor": getattr(event, "kwargs", {}).get("actor", "system"),
+                "reason": getattr(event, "kwargs", {}).get("reason", ""),
+            }
+        )
 
     def get_status(self) -> dict[str, Any]:
         """Return current payout workflow status."""
@@ -97,8 +136,11 @@ class PayoutWorkflow:
             "created_at": self.created_at,
             "history": self.history,
             "transitions_available": [
-                t.name for t in self.machine.get_triggers(self.state)  # type: ignore[attr-defined]
-            ] if hasattr(self, "state") else [],
+                t.name
+                for t in self.machine.get_triggers(self.state)  # type: ignore[attr-defined]
+            ]
+            if hasattr(self, "state")
+            else [],
         }
 
 

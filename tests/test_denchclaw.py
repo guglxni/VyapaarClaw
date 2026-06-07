@@ -30,19 +30,22 @@ def _dench_handler(responses: dict[str, object]):
             if "INSERT INTO objects" in sql and "vyapaar_vendor" in sql:
                 return httpx.Response(200, json={"rows": [{"id": "vendor-obj-1"}]})
             if "SELECT id, name FROM fields" in sql:
-                return httpx.Response(200, json={
-                    "rows": [
-                        {"id": "f1", "name": "Payout ID"},
-                        {"id": "f2", "name": "Agent ID"},
-                        {"id": "f3", "name": "Amount Paise"},
-                        {"id": "f4", "name": "Decision"},
-                        {"id": "f5", "name": "Reason Code"},
-                        {"id": "f6", "name": "Reason Detail"},
-                        {"id": "f7", "name": "Vendor Name"},
-                        {"id": "f8", "name": "Vendor URL"},
-                        {"id": "f9", "name": "Processing Ms"},
-                    ]
-                })
+                return httpx.Response(
+                    200,
+                    json={
+                        "rows": [
+                            {"id": "f1", "name": "Payout ID"},
+                            {"id": "f2", "name": "Agent ID"},
+                            {"id": "f3", "name": "Amount Paise"},
+                            {"id": "f4", "name": "Decision"},
+                            {"id": "f5", "name": "Reason Code"},
+                            {"id": "f6", "name": "Reason Detail"},
+                            {"id": "f7", "name": "Vendor Name"},
+                            {"id": "f8", "name": "Vendor URL"},
+                            {"id": "f9", "name": "Processing Ms"},
+                        ]
+                    },
+                )
             if "INSERT INTO entries" in sql:
                 return httpx.Response(200, json={"rows": [{"id": "entry-1"}]})
             if "SELECT e.id as entry_id" in sql:
@@ -51,17 +54,23 @@ def _dench_handler(responses: dict[str, object]):
         if path == "/api/workspace/file":
             return httpx.Response(200, json={"ok": True})
         if path == f"/api/workspace/objects/{AUDIT_OBJECT}":
-            return httpx.Response(200, json={
-                "entries": [{"Payout ID": "pout_1", "Decision": "APPROVED"}],
-                "totalCount": 1,
-                "object": AUDIT_OBJECT,
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "entries": [{"Payout ID": "pout_1", "Decision": "APPROVED"}],
+                    "totalCount": 1,
+                    "object": AUDIT_OBJECT,
+                },
+            )
         if path == f"/api/workspace/objects/{VENDOR_OBJECT}":
-            return httpx.Response(200, json={
-                "entries": [],
-                "totalCount": 0,
-                "object": VENDOR_OBJECT,
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "entries": [],
+                    "totalCount": 0,
+                    "object": VENDOR_OBJECT,
+                },
+            )
         return httpx.Response(404, json={"error": "not found"})
 
     return handler
@@ -71,9 +80,6 @@ def _dench_handler(responses: dict[str, object]):
 def dench_client(monkeypatch: pytest.MonkeyPatch) -> DenchClawClient:
     """DenchClawClient with mocked HTTP transport."""
     client = DenchClawClient(base_url="http://localhost:3100", enabled=True)
-
-    original_execute = client._execute
-    original_write = client._write_file
 
     transport = httpx.MockTransport(_dench_handler({}))
 
@@ -113,30 +119,34 @@ async def test_ensure_schema_bootstraps_objects(dench_client: DenchClawClient) -
 
 @pytest.mark.asyncio
 async def test_sync_audit_entry(dench_client: DenchClawClient) -> None:
-    result = await dench_client.sync_audit_entry({
-        "payout_id": "pout_test_001",
-        "agent_id": "procurement-bot",
-        "amount": 45000,
-        "decision": "APPROVED",
-        "reason_code": "POLICY_OK",
-        "reason_detail": "All checks passed",
-        "vendor_name": "Acme Corp",
-        "processing_ms": 42,
-    })
+    result = await dench_client.sync_audit_entry(
+        {
+            "payout_id": "pout_test_001",
+            "agent_id": "procurement-bot",
+            "amount": 45000,
+            "decision": "APPROVED",
+            "reason_code": "POLICY_OK",
+            "reason_detail": "All checks passed",
+            "vendor_name": "Acme Corp",
+            "processing_ms": 42,
+        }
+    )
     assert result["synced"] is True
     assert result["object"] == AUDIT_OBJECT
 
 
 @pytest.mark.asyncio
 async def test_sync_vendor(dench_client: DenchClawClient) -> None:
-    result = await dench_client.sync_vendor({
-        "vendor_name": "Acme Corp",
-        "gstin": "27AABCU9603R1ZM",
-        "trust_score": 0.85,
-        "trust_level": "HIGH",
-        "sanctions_status": "CLEAR",
-        "last_screened": "2026-06-06T12:00:00Z",
-    })
+    result = await dench_client.sync_vendor(
+        {
+            "vendor_name": "Acme Corp",
+            "gstin": "27AABCU9603R1ZM",
+            "trust_score": 0.85,
+            "trust_level": "HIGH",
+            "sanctions_status": "CLEAR",
+            "last_screened": "2026-06-06T12:00:00Z",
+        }
+    )
     assert result["synced"] is True
     assert result["object"] == VENDOR_OBJECT
 
@@ -144,11 +154,8 @@ async def test_sync_vendor(dench_client: DenchClawClient) -> None:
 @pytest.mark.asyncio
 async def test_status_when_available(dench_client: DenchClawClient) -> None:
     transport = httpx.MockTransport(_dench_handler({}))
-    original_get_entries = dench_client.get_object_entries
 
-    async def mock_get_entries(
-        object_name: str, page: int = 1, page_size: int = 50
-    ) -> dict:
+    async def mock_get_entries(object_name: str, page: int = 1, page_size: int = 50) -> dict:
         async with httpx.AsyncClient(transport=transport) as http:
             resp = await http.get(
                 f"http://localhost:3100/api/workspace/objects/{object_name}",

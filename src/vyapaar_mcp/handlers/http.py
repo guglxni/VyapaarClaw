@@ -193,23 +193,27 @@ def make_dashboard_endpoint(
                 total = sum(d.get("count", 0) for d in breakdown.values())
                 rejected = breakdown.get("REJECTED", {}).get("count", 0)
                 if total > 0 and rejected / total > 0.2:
-                    high_risk.append({
-                        "agent_id": aid,
-                        "rejection_rate_pct": round(rejected / total * 100, 1),
-                        "total_decisions": total,
-                    })
+                    high_risk.append(
+                        {
+                            "agent_id": aid,
+                            "rejection_rate_pct": round(rejected / total * 100, 1),
+                            "total_decisions": total,
+                        }
+                    )
 
-            return JSONResponse({
-                "agents": agents,
-                "compliance": {
-                    "total_decisions": compliance.get("total_decisions", 0),
-                    "decisions": compliance.get("decisions", {}),
-                    "top_rejection_reasons": compliance.get("top_rejection_reasons", []),
-                    "high_risk_agents": high_risk,
-                },
-                "recent_decisions": recent,
-                "mcp_connected": True,
-            })
+            return JSONResponse(
+                {
+                    "agents": agents,
+                    "compliance": {
+                        "total_decisions": compliance.get("total_decisions", 0),
+                        "decisions": compliance.get("decisions", {}),
+                        "top_rejection_reasons": compliance.get("top_rejection_reasons", []),
+                        "high_risk_agents": high_risk,
+                    },
+                    "recent_decisions": recent,
+                    "mcp_connected": True,
+                }
+            )
         except Exception as exc:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
@@ -248,23 +252,25 @@ def make_audit_endpoint(
         limit = int(request.query_params.get("limit", "50"))
         agent_id = request.query_params.get("agent_id") or None
         logs = await postgres.get_audit_logs(agent_id=agent_id, limit=limit)
-        return JSONResponse({
-            "entries": [
-                {
-                    "payout_id": log.payout_id,
-                    "agent_id": log.agent_id,
-                    "amount": log.amount,
-                    "decision": log.decision.value,
-                    "reason_code": log.reason_code.value,
-                    "reason_detail": log.reason_detail,
-                    "vendor_name": log.vendor_name,
-                    "vendor_url": log.vendor_url,
-                    "processing_ms": log.processing_ms,
-                    "created_at": log.created_at.isoformat() if log.created_at else None,
-                }
-                for log in logs
-            ],
-        })
+        return JSONResponse(
+            {
+                "entries": [
+                    {
+                        "payout_id": log.payout_id,
+                        "agent_id": log.agent_id,
+                        "amount": log.amount,
+                        "decision": log.decision.value,
+                        "reason_code": log.reason_code.value,
+                        "reason_detail": log.reason_detail,
+                        "vendor_name": log.vendor_name,
+                        "vendor_url": log.vendor_url,
+                        "processing_ms": log.processing_ms,
+                        "created_at": log.created_at.isoformat() if log.created_at else None,
+                    }
+                    for log in logs
+                ],
+            }
+        )
 
     audit_endpoint.__name__ = "audit_endpoint"
     return audit_endpoint

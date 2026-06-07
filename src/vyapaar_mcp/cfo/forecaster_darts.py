@@ -43,15 +43,18 @@ def forecast_with_darts(
         forecast = []
         remaining = budget_remaining_paise
         import datetime as _dt
+
         for day, val in enumerate(pred_values[:7], start=1):
             projected = int(val * 100)
             remaining = max(0, remaining - projected)
-            forecast.append({
-                "day": day,
-                "date": (_dt.date.today() + _dt.timedelta(days=day)).isoformat(),
-                "projected_spend_paise": projected,
-                "budget_remaining_paise": remaining,
-            })
+            forecast.append(
+                {
+                    "day": day,
+                    "date": (_dt.date.today() + _dt.timedelta(days=day)).isoformat(),
+                    "projected_spend_paise": projected,
+                    "budget_remaining_paise": remaining,
+                }
+            )
 
         if runway_days is not None and runway_days <= 7:
             severity = "critical"

@@ -14,7 +14,6 @@ from typing import Any
 
 import holidays
 
-
 _IN_HOLIDAYS = holidays.India(years=range(2024, 2028))
 
 # RBI settlement holidays that go beyond public holidays
@@ -71,11 +70,13 @@ def upcoming_holidays(from_date: _dt.date | None = None, count: int = 5) -> list
     while len(result) < count:
         current += _dt.timedelta(days=1)
         if current in _IN_HOLIDAYS:
-            result.append({
-                "date": current.isoformat(),
-                "name": _IN_HOLIDAYS.get(current, "Holiday"),
-                "day": current.strftime("%A"),
-            })
+            result.append(
+                {
+                    "date": current.isoformat(),
+                    "name": _IN_HOLIDAYS.get(current, "Holiday"),
+                    "day": current.strftime("%A"),
+                }
+            )
     return result
 
 
@@ -88,10 +89,18 @@ _FINANCIAL_DEADLINES = [
     {"day": 11, "name": "GSTR-1 Filing", "frequency": "monthly"},
     {"day": 13, "name": "GSTR-1 (QRMP) Filing", "frequency": "quarterly"},
     {"day": 20, "name": "GSTR-3B Filing", "frequency": "monthly"},
-    {"day": 15, "name": "Advance Tax Installment", "frequency": "quarterly",
-     "months": [6, 9, 12, 3]},
-    {"day": 30, "name": "TDS Return (quarterly)", "frequency": "quarterly",
-     "months": [7, 10, 1, 5]},
+    {
+        "day": 15,
+        "name": "Advance Tax Installment",
+        "frequency": "quarterly",
+        "months": [6, 9, 12, 3],
+    },
+    {
+        "day": 30,
+        "name": "TDS Return (quarterly)",
+        "frequency": "quarterly",
+        "months": [7, 10, 1, 5],
+    },
 ]
 
 
@@ -109,22 +118,23 @@ def upcoming_deadlines(
         month = ((month - 1) % 12) + 1
 
         for dl in _FINANCIAL_DEADLINES:
-            if dl["frequency"] == "quarterly" and "months" in dl:
-                if month not in dl["months"]:
-                    continue
+            if dl["frequency"] == "quarterly" and "months" in dl and month not in dl["months"]:
+                continue
             try:
                 deadline_date = _dt.date(year, month, dl["day"])
             except ValueError:
                 continue
 
             if deadline_date > base:
-                results.append({
-                    "date": deadline_date.isoformat(),
-                    "name": dl["name"],
-                    "frequency": dl["frequency"],
-                    "is_business_day": is_business_day(deadline_date),
-                    "effective_date": next_business_day(deadline_date).isoformat(),
-                })
+                results.append(
+                    {
+                        "date": deadline_date.isoformat(),
+                        "name": dl["name"],
+                        "frequency": dl["frequency"],
+                        "is_business_day": is_business_day(deadline_date),
+                        "effective_date": next_business_day(deadline_date).isoformat(),
+                    }
+                )
 
         if len(results) >= count:
             break

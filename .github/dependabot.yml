@@ -11,7 +11,7 @@ updates:
       - python
 
   - package-ecosystem: npm
-    directory: /apps/web
+    directory: /
     schedule:
       interval: weekly
       day: monday

@@ -6,13 +6,14 @@ If PostgreSQL is unreachable, falls back to local filesystem
 
 from __future__ import annotations
 
-import asyncpg
 import json
 import logging
 import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import asyncpg
 
 from vyapaar_mcp.db.postgres import PostgresClient
 from vyapaar_mcp.models import GovernanceResult
@@ -62,17 +63,19 @@ async def _sync_to_denchclaw(
     if _dench_client is None or not _dench_client.configured:
         return
     try:
-        sync_result = await _dench_client.sync_audit_entry({
-            "payout_id": result.payout_id,
-            "agent_id": result.agent_id,
-            "amount": result.amount,
-            "decision": result.decision.value,
-            "reason_code": result.reason_code.value,
-            "reason_detail": result.reason_detail,
-            "vendor_name": vendor_name,
-            "vendor_url": vendor_url,
-            "processing_ms": result.processing_ms,
-        })
+        sync_result = await _dench_client.sync_audit_entry(
+            {
+                "payout_id": result.payout_id,
+                "agent_id": result.agent_id,
+                "amount": result.amount,
+                "decision": result.decision.value,
+                "reason_code": result.reason_code.value,
+                "reason_detail": result.reason_detail,
+                "vendor_name": vendor_name,
+                "vendor_url": vendor_url,
+                "processing_ms": result.processing_ms,
+            }
+        )
         if sync_result.get("synced"):
             logger.debug(
                 "DenchClaw audit sync OK: payout=%s entry=%s",

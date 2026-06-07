@@ -21,7 +21,7 @@ from starlette.routing import Mount, Route
 from transitions.core import MachineError
 
 from vyapaar_mcp.audit.logger import log_decision, set_denchclaw_client
-from vyapaar_mcp.integrations.denchclaw import DenchClawClient
+from vyapaar_mcp.cfo.gst_providers import build_gst_chain
 from vyapaar_mcp.config import load_config
 from vyapaar_mcp.db.postgres import PostgresClient
 from vyapaar_mcp.db.redis_client import RedisClient
@@ -31,7 +31,6 @@ from vyapaar_mcp.egress.slack_notifier import SlackNotifier
 from vyapaar_mcp.egress.telegram_notifier import TelegramNotifier
 from vyapaar_mcp.governance.engine import GovernanceEngine
 from vyapaar_mcp.governance.options import GovernanceOptions
-from vyapaar_mcp.cfo.gst_providers import build_gst_chain
 from vyapaar_mcp.handlers.http import (
     make_agents_endpoint,
     make_audit_endpoint,
@@ -40,7 +39,6 @@ from vyapaar_mcp.handlers.http import (
     make_slack_actions_endpoint,
     make_telegram_callback_endpoint,
 )
-from vyapaar_mcp.research.exa_client import ExaClient
 from vyapaar_mcp.ingress.polling import PayoutPoller
 from vyapaar_mcp.ingress.razorpay_bridge import RazorpayBridge
 from vyapaar_mcp.ingress.webhook import (
@@ -48,6 +46,7 @@ from vyapaar_mcp.ingress.webhook import (
     parse_webhook_event,
     verify_razorpay_signature,
 )
+from vyapaar_mcp.integrations.denchclaw import DenchClawClient
 from vyapaar_mcp.lifecycle import make_lifespan
 from vyapaar_mcp.llm import LLMClient
 from vyapaar_mcp.llm.security_validator import ToolCallValidator
@@ -62,6 +61,7 @@ from vyapaar_mcp.observability import metrics
 from vyapaar_mcp.reputation.anomaly import TransactionAnomalyScorer
 from vyapaar_mcp.reputation.gleif import GLEIFChecker
 from vyapaar_mcp.reputation.safe_browsing import SafeBrowsingChecker
+from vyapaar_mcp.research.exa_client import ExaClient
 from vyapaar_mcp.resilience import CircuitBreaker
 from vyapaar_mcp.server_state import state
 from vyapaar_mcp.server_support import (
@@ -82,6 +82,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("vyapaar_mcp")
+
 
 def _require(**services: Any) -> None:
     """Validate that required server components are initialized.
@@ -317,6 +318,7 @@ async def _startup() -> None:
 
     # Workflow Postgres persistence (Phase 3)
     from vyapaar_mcp.cfo.workflow import set_workflow_store
+
     if state.postgres:
         set_workflow_store(state.postgres)
         logger.info("✅ Workflow persistence enabled (PostgreSQL)")
@@ -326,9 +328,7 @@ async def _startup() -> None:
         base_url=state.config.denchclaw_url,
         enabled=state.config.denchclaw_enabled,
     )
-    set_denchclaw_client(
-        state.denchclaw if state.config.denchclaw_sync_auto else None
-    )
+    set_denchclaw_client(state.denchclaw if state.config.denchclaw_sync_auto else None)
     if state.config.denchclaw_enabled:
         if await state.denchclaw.is_available():
             logger.info("✅ DenchClaw CRM connected at %s", state.config.denchclaw_url)
@@ -354,10 +354,7 @@ async def _startup() -> None:
                 state.config.azure_guardrails_enabled,
             )
         else:
-            logger.info(
-                "ℹ️  LLM not configured — "
-                "set VYAPAAR_LLM_MODEL and VYAPAAR_LLM_API_KEY"
-            )
+            logger.info("ℹ️  LLM not configured — set VYAPAAR_LLM_MODEL and VYAPAAR_LLM_API_KEY")
     except (RuntimeError, ValueError, TypeError) as exc:
         logger.warning("⚠️  LLM initialization skipped: %s", exc)
 
@@ -2336,14 +2333,16 @@ async def screen_vendor_sanctions(
         try:
             from datetime import UTC, datetime
 
-            await state.denchclaw.sync_vendor({
-                "vendor_name": vendor_name,
-                "gstin": gstin,
-                "trust_score": result.get("trust_score"),
-                "trust_level": result.get("trust_level"),
-                "sanctions_status": result.get("sanctions", {}).get("risk_level", ""),
-                "last_screened": datetime.now(tz=UTC).isoformat(),
-            })
+            await state.denchclaw.sync_vendor(
+                {
+                    "vendor_name": vendor_name,
+                    "gstin": gstin,
+                    "trust_score": result.get("trust_score"),
+                    "trust_level": result.get("trust_level"),
+                    "sanctions_status": result.get("sanctions", {}).get("risk_level", ""),
+                    "last_screened": datetime.now(tz=UTC).isoformat(),
+                }
+            )
             result["denchclaw_synced"] = True
         except Exception as exc:
             result["denchclaw_synced"] = False
@@ -2469,17 +2468,19 @@ async def sync_audit_to_denchclaw(
     errors: list[str] = []
     for log in logs:
         try:
-            result = await state.denchclaw.sync_audit_entry({
-                "payout_id": log.payout_id,
-                "agent_id": log.agent_id,
-                "amount": log.amount,
-                "decision": log.decision.value,
-                "reason_code": log.reason_code.value,
-                "reason_detail": log.reason_detail,
-                "vendor_name": log.vendor_name,
-                "vendor_url": log.vendor_url,
-                "processing_ms": log.processing_ms,
-            })
+            result = await state.denchclaw.sync_audit_entry(
+                {
+                    "payout_id": log.payout_id,
+                    "agent_id": log.agent_id,
+                    "amount": log.amount,
+                    "decision": log.decision.value,
+                    "reason_code": log.reason_code.value,
+                    "reason_detail": log.reason_detail,
+                    "vendor_name": log.vendor_name,
+                    "vendor_url": log.vendor_url,
+                    "processing_ms": log.processing_ms,
+                }
+            )
             if result.get("synced"):
                 synced += 1
         except Exception as exc:
@@ -2497,6 +2498,7 @@ async def get_denchclaw_audit_log(
     if state.denchclaw is None:
         return {"entries": [], "error": "DenchClaw not initialized"}
     from vyapaar_mcp.integrations.denchclaw_schema import AUDIT_OBJECT
+
     return await state.denchclaw.get_object_entries(AUDIT_OBJECT, page, page_size)
 
 
@@ -2536,9 +2538,7 @@ async def research_vendor(
     Requires VYAPAAR_EXA_API_KEY.
     """
     if state.exa_client is None:
-        state.exa_client = ExaClient(
-            api_key=state.config.exa_api_key if state.config else ""
-        )
+        state.exa_client = ExaClient(api_key=state.config.exa_api_key if state.config else "")
     return await state.exa_client.research_vendor(vendor_name, extra_context)
 
 
@@ -2553,9 +2553,7 @@ async def screen_adverse_media(
     from vyapaar_mcp.reputation.adverse_media import screen_adverse_media as _screen
 
     if state.exa_client is None:
-        state.exa_client = ExaClient(
-            api_key=state.config.exa_api_key if state.config else ""
-        )
+        state.exa_client = ExaClient(api_key=state.config.exa_api_key if state.config else "")
     return await _screen(vendor_name, exa_client=state.exa_client)
 
 
@@ -2675,24 +2673,26 @@ def run_server_sync() -> None:
         from starlette.middleware import Middleware
         from starlette.middleware.base import BaseHTTPMiddleware
         from starlette.responses import JSONResponse
-        
+
         async def auth_middleware(request: Request, call_next: Any) -> Response:
             secret = os.environ.get("VYAPAAR_MCP_SECRET")
             if not secret:
                 return await call_next(request)
-            
+
             # Allow health checks and unauthenticated webhooks
             if request.url.path in ["/health", "/slack/actions", "/telegram/callback"]:
                 return await call_next(request)
-            
+
             auth_header = request.headers.get("authorization", "")
             if not auth_header.startswith("Bearer ") or auth_header[7:] != secret:
                 return JSONResponse({"error": "Unauthorized"}, status_code=401)
-                
+
             return await call_next(request)
 
         starlette_app = Starlette(
-            debug=state.config.dev_mode if state.config else os.environ.get("VYAPAAR_DEV_MODE", "").lower() == "true",
+            debug=state.config.dev_mode
+            if state.config
+            else os.environ.get("VYAPAAR_DEV_MODE", "").lower() == "true",
             middleware=[Middleware(BaseHTTPMiddleware, dispatch=auth_middleware)],
             routes=[
                 Route("/sse", endpoint=sse_handler, methods=["GET", "POST"]),

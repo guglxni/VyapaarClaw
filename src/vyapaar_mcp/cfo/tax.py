@@ -9,25 +9,46 @@ from __future__ import annotations
 import re
 from typing import Any
 
-
 # GSTIN format: 2-digit state code + 10-char PAN + 1-digit entity number + Z + 1-digit checksum
-_GSTIN_PATTERN = re.compile(
-    r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$"
-)
+_GSTIN_PATTERN = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$")
 
 _STATE_CODES: dict[str, str] = {
-    "01": "Jammu & Kashmir", "02": "Himachal Pradesh", "03": "Punjab",
-    "04": "Chandigarh", "05": "Uttarakhand", "06": "Haryana",
-    "07": "Delhi", "08": "Rajasthan", "09": "Uttar Pradesh",
-    "10": "Bihar", "11": "Sikkim", "12": "Arunachal Pradesh",
-    "13": "Nagaland", "14": "Manipur", "15": "Mizoram",
-    "16": "Tripura", "17": "Meghalaya", "18": "Assam",
-    "19": "West Bengal", "20": "Jharkhand", "21": "Odisha",
-    "22": "Chhattisgarh", "23": "Madhya Pradesh", "24": "Gujarat",
-    "26": "Dadra & Nagar Haveli", "27": "Maharashtra", "29": "Karnataka",
-    "30": "Goa", "31": "Lakshadweep", "32": "Kerala",
-    "33": "Tamil Nadu", "34": "Puducherry", "35": "Andaman & Nicobar",
-    "36": "Telangana", "37": "Andhra Pradesh", "38": "Ladakh",
+    "01": "Jammu & Kashmir",
+    "02": "Himachal Pradesh",
+    "03": "Punjab",
+    "04": "Chandigarh",
+    "05": "Uttarakhand",
+    "06": "Haryana",
+    "07": "Delhi",
+    "08": "Rajasthan",
+    "09": "Uttar Pradesh",
+    "10": "Bihar",
+    "11": "Sikkim",
+    "12": "Arunachal Pradesh",
+    "13": "Nagaland",
+    "14": "Manipur",
+    "15": "Mizoram",
+    "16": "Tripura",
+    "17": "Meghalaya",
+    "18": "Assam",
+    "19": "West Bengal",
+    "20": "Jharkhand",
+    "21": "Odisha",
+    "22": "Chhattisgarh",
+    "23": "Madhya Pradesh",
+    "24": "Gujarat",
+    "26": "Dadra & Nagar Haveli",
+    "27": "Maharashtra",
+    "29": "Karnataka",
+    "30": "Goa",
+    "31": "Lakshadweep",
+    "32": "Kerala",
+    "33": "Tamil Nadu",
+    "34": "Puducherry",
+    "35": "Andaman & Nicobar",
+    "36": "Telangana",
+    "37": "Andhra Pradesh",
+    "38": "Ladakh",
 }
 
 _GSTIN_CHARSET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -80,9 +101,15 @@ def validate_gstin(gstin: str) -> dict[str, Any]:
     # PAN entity type
     pan_type_char = pan[3]
     entity_types = {
-        "C": "Company", "P": "Person", "H": "HUF",
-        "F": "Firm", "A": "AOP", "T": "Trust",
-        "B": "BOI", "L": "Local Authority", "J": "Judicial Person",
+        "C": "Company",
+        "P": "Person",
+        "H": "HUF",
+        "F": "Firm",
+        "A": "AOP",
+        "T": "Trust",
+        "B": "BOI",
+        "L": "Local Authority",
+        "J": "Judicial Person",
         "G": "Government",
     }
 
@@ -151,12 +178,24 @@ def check_tds_applicability(
     - 194H: Commission/brokerage (5%)
     """
     thresholds: dict[str, dict[str, Any]] = {
-        "194C": {"threshold_paise": 3000000, "rate_individual": 1.0, "rate_company": 2.0,
-                 "description": "Payment to contractor"},
-        "194J": {"threshold_paise": 3000000, "rate_individual": 10.0, "rate_company": 10.0,
-                 "description": "Professional/technical fees"},
-        "194H": {"threshold_paise": 1500000, "rate_individual": 5.0, "rate_company": 5.0,
-                 "description": "Commission/brokerage"},
+        "194C": {
+            "threshold_paise": 3000000,
+            "rate_individual": 1.0,
+            "rate_company": 2.0,
+            "description": "Payment to contractor",
+        },
+        "194J": {
+            "threshold_paise": 3000000,
+            "rate_individual": 10.0,
+            "rate_company": 10.0,
+            "description": "Professional/technical fees",
+        },
+        "194H": {
+            "threshold_paise": 1500000,
+            "rate_individual": 5.0,
+            "rate_company": 5.0,
+            "description": "Commission/brokerage",
+        },
     }
 
     config = thresholds.get(section, thresholds["194C"])

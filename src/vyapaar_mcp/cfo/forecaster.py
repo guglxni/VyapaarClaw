@@ -8,7 +8,6 @@ regression — no heavy ML framework required at baseline.
 from __future__ import annotations
 
 import datetime as _dt
-import math
 from typing import Any
 
 import numpy as np
@@ -33,7 +32,10 @@ def forecast_burn_rate(
     """
     if prefer_darts:
         from vyapaar_mcp.cfo.forecaster_darts import forecast_with_darts
-        darts_result = forecast_with_darts(daily_spends_paise, budget_remaining_paise, forecast_days)
+
+        darts_result = forecast_with_darts(
+            daily_spends_paise, budget_remaining_paise, forecast_days
+        )
         if darts_result is not None:
             return darts_result
 
@@ -67,10 +69,7 @@ def forecast_burn_rate(
         intercept = avg_daily
 
     # Runway estimation
-    if trend_daily > 0:
-        runway_days = int(budget_remaining_paise / trend_daily)
-    else:
-        runway_days = None  # Not spending
+    runway_days = int(budget_remaining_paise / trend_daily) if trend_daily > 0 else None
 
     # Forecast
     forecast: list[dict[str, Any]] = []
@@ -78,12 +77,14 @@ def forecast_burn_rate(
     for day in range(1, forecast_days + 1):
         projected = max(0, intercept + slope * (n + day))
         remaining = max(0, remaining - int(projected))
-        forecast.append({
-            "day": day,
-            "date": (_dt.date.today() + _dt.timedelta(days=day)).isoformat(),
-            "projected_spend_paise": int(projected),
-            "budget_remaining_paise": remaining,
-        })
+        forecast.append(
+            {
+                "day": day,
+                "date": (_dt.date.today() + _dt.timedelta(days=day)).isoformat(),
+                "projected_spend_paise": int(projected),
+                "budget_remaining_paise": remaining,
+            }
+        )
 
     # Severity assessment
     if runway_days is not None and runway_days <= 7:
@@ -157,8 +158,6 @@ def detect_spending_anomaly(
         "historical_mean_paise": int(mean),
         "historical_std_paise": int(std),
         "reason": (
-            f"Spend is {abs(z_score):.1f}σ from mean"
-            if is_anomalous
-            else "Within normal range"
+            f"Spend is {abs(z_score):.1f}σ from mean" if is_anomalous else "Within normal range"
         ),
     }

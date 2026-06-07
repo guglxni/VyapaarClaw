@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from vyapaar_mcp.cfo.einvoice import validate_einvoice_bundle, validate_irn

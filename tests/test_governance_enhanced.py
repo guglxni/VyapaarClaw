@@ -22,7 +22,7 @@ from vyapaar_mcp.models import (
     RazorpayFundAccount,
     ReasonCode,
 )
-from vyapaar_mcp.reputation.anomaly import AnomalyScore, TransactionAnomalyScorer
+from vyapaar_mcp.reputation.anomaly import AnomalyScore
 
 
 class StubAnomalyScorer:

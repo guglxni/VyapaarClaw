@@ -14,6 +14,7 @@ from datetime import date
 from typing import Any
 
 import redis.asyncio as aioredis
+from redis.exceptions import RedisError
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ class RedisClient:
         """Check if Redis is reachable."""
         try:
             return bool(await self.client.ping())
-        except (redis.exceptions.RedisError, RuntimeError, ConnectionError, TimeoutError):
+        except (RedisError, RuntimeError, ConnectionError, TimeoutError):
             return False
 
     # ================================================================

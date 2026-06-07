@@ -10,7 +10,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Payment term patterns
 # ---------------------------------------------------------------------------
@@ -79,11 +78,13 @@ def analyze_contract_text(text: str) -> dict[str, Any]:
     payment_terms_days: int | None = None
     if net_matches:
         payment_terms_days = int(net_matches[0])
-        findings.append({
-            "type": "payment_terms",
-            "value": f"Net {payment_terms_days} days",
-            "days": payment_terms_days,
-        })
+        findings.append(
+            {
+                "type": "payment_terms",
+                "value": f"Net {payment_terms_days} days",
+                "days": payment_terms_days,
+            }
+        )
         if payment_terms_days < 15:
             risk_flags.append("Short payment terms (< 15 days)")
 
@@ -91,11 +92,13 @@ def analyze_contract_text(text: str) -> dict[str, Any]:
     penalty_matches = _PENALTY_CLAUSE.findall(text)
     if penalty_matches:
         rate = float(penalty_matches[0])
-        findings.append({
-            "type": "penalty_clause",
-            "value": f"{rate}% late payment penalty",
-            "rate_percent": rate,
-        })
+        findings.append(
+            {
+                "type": "penalty_clause",
+                "value": f"{rate}% late payment penalty",
+                "rate_percent": rate,
+            }
+        )
         if rate > 2.0:
             risk_flags.append(f"High penalty rate ({rate}%)")
 
@@ -107,30 +110,36 @@ def analyze_contract_text(text: str) -> dict[str, Any]:
     # Termination notice
     term_matches = _TERMINATION.findall(text)
     if term_matches:
-        findings.append({
-            "type": "termination_notice",
-            "value": f"{term_matches[0]} notice required",
-        })
+        findings.append(
+            {
+                "type": "termination_notice",
+                "value": f"{term_matches[0]} notice required",
+            }
+        )
 
     # Contract values
     amounts = _AMOUNT_PATTERN.findall(text)
     if amounts:
         parsed_amounts = [float(a.replace(",", "")) for a in amounts[:5]]
-        findings.append({
-            "type": "contract_values",
-            "values": parsed_amounts,
-            "max_value": max(parsed_amounts),
-        })
+        findings.append(
+            {
+                "type": "contract_values",
+                "values": parsed_amounts,
+                "max_value": max(parsed_amounts),
+            }
+        )
 
     # SLA
     sla_matches = _SLA_PATTERN.findall(text)
     if sla_matches:
         uptime = float(sla_matches[0])
-        findings.append({
-            "type": "sla",
-            "value": f"{uptime}% uptime/availability",
-            "uptime_percent": uptime,
-        })
+        findings.append(
+            {
+                "type": "sla",
+                "value": f"{uptime}% uptime/availability",
+                "uptime_percent": uptime,
+            }
+        )
 
     # Indemnification
     if _INDEMNITY.search(text):

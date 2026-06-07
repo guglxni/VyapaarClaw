@@ -112,9 +112,11 @@ class TestHealthEndpoint:
         mock_postgres = AsyncMock()
         mock_postgres.ping.return_value = True
 
-        with patch.object(server.state, "redis", mock_redis), patch.object(
-            server.state, "postgres", mock_postgres
-        ), patch.object(server.state, "start_time", 0):
+        with (
+            patch.object(server.state, "redis", mock_redis),
+            patch.object(server.state, "postgres", mock_postgres),
+            patch.object(server.state, "start_time", 0),
+        ):
             request = MagicMock()
             response = await server.health_endpoint(request)
 
@@ -133,9 +135,11 @@ class TestHealthEndpoint:
         mock_postgres = AsyncMock()
         mock_postgres.ping.return_value = True
 
-        with patch.object(server.state, "redis", mock_redis), patch.object(
-            server.state, "postgres", mock_postgres
-        ), patch.object(server.state, "start_time", 0):
+        with (
+            patch.object(server.state, "redis", mock_redis),
+            patch.object(server.state, "postgres", mock_postgres),
+            patch.object(server.state, "start_time", 0),
+        ):
             request = MagicMock()
             response = await server.health_endpoint(request)
 
@@ -150,9 +154,11 @@ class TestHealthEndpoint:
         mock_postgres = AsyncMock()
         mock_postgres.ping.return_value = False
 
-        with patch.object(server.state, "redis", mock_redis), patch.object(
-            server.state, "postgres", mock_postgres
-        ), patch.object(server.state, "start_time", 0):
+        with (
+            patch.object(server.state, "redis", mock_redis),
+            patch.object(server.state, "postgres", mock_postgres),
+            patch.object(server.state, "start_time", 0),
+        ):
             request = MagicMock()
             response = await server.health_endpoint(request)
 
@@ -162,9 +168,11 @@ class TestHealthEndpoint:
         assert body["postgres"] == "error"
 
     async def test_handles_none_services(self) -> None:
-        with patch.object(server.state, "redis", None), patch.object(
-            server.state, "postgres", None
-        ), patch.object(server.state, "start_time", 0):
+        with (
+            patch.object(server.state, "redis", None),
+            patch.object(server.state, "postgres", None),
+            patch.object(server.state, "start_time", 0),
+        ):
             request = MagicMock()
             response = await server.health_endpoint(request)
 
@@ -184,10 +192,10 @@ class TestLifespan:
     """Test the _lifespan context manager orchestrates startup and shutdown."""
 
     async def test_calls_startup_then_shutdown(self) -> None:
-        with patch.object(server, "_startup", new_callable=AsyncMock) as mock_startup, patch.object(
-            server, "_shutdown", new_callable=AsyncMock
-        ) as mock_shutdown:
-
+        with (
+            patch.object(server, "_startup", new_callable=AsyncMock) as mock_startup,
+            patch.object(server, "_shutdown", new_callable=AsyncMock) as mock_shutdown,
+        ):
             async with server._lifespan(server.mcp):
                 mock_startup.assert_awaited_once()
                 mock_shutdown.assert_not_awaited()
@@ -195,10 +203,10 @@ class TestLifespan:
             mock_shutdown.assert_awaited_once()
 
     async def test_calls_shutdown_even_on_exception(self) -> None:
-        with patch.object(server, "_startup", new_callable=AsyncMock) as mock_startup, patch.object(
-            server, "_shutdown", new_callable=AsyncMock
-        ) as mock_shutdown:
-
+        with (
+            patch.object(server, "_startup", new_callable=AsyncMock) as mock_startup,
+            patch.object(server, "_shutdown", new_callable=AsyncMock) as mock_shutdown,
+        ):
             with pytest.raises(ValueError, match="boom"):
                 async with server._lifespan(server.mcp):
                     mock_startup.assert_awaited_once()

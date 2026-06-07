@@ -67,11 +67,13 @@ async def screen_adverse_media(
         text = f"{article.get('title', '')} {article.get('text', '')}"
         adverse_matches = _ADVERSE_KEYWORDS.findall(text)
         if adverse_matches:
-            flagged.append({
-                **article,
-                "matched_keywords": list(set(m.lower() for m in adverse_matches)),
-                "severity": _severity_from_keywords(adverse_matches),
-            })
+            flagged.append(
+                {
+                    **article,
+                    "matched_keywords": list(set(m.lower() for m in adverse_matches)),
+                    "severity": _severity_from_keywords(adverse_matches),
+                }
+            )
         if _POSITIVE_KEYWORDS.search(text):
             positive_hits += 1
 
